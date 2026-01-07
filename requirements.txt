@@ -1,0 +1,11 @@
+opencv-python>=4.8.0
+mediapipe==0.10.9
+numpy>=1.24.0
+matplotlib>=3.7.0
+protobuf==3.20.3
+pybullet>=3.2.5
+# sapien>=2.2.0  # Optional - Advanced physics simulator
+# Note: SAPIEN installation may require specific platform/Python version
+# For macOS ARM (M1/M2): May not be available yet
+# For Linux/Windows: pip install sapien
+# Alternative: Use PyBullet (already included above)
