@@ -133,6 +133,7 @@ class Revo2HandVisualizer:
         
         fps = trajectory['fps']
         frames = trajectory['frames']
+        angle_unit = trajectory.get('angle_unit', 'radians')  # Default to radians for backward compatibility
         dt = 1.0 / fps / playback_speed
         
         print(f"\n{'='*60}")
@@ -141,6 +142,7 @@ class Revo2HandVisualizer:
         print(f"File: {trajectory_file}")
         print(f"Total frames: {len(frames)}")
         print(f"FPS: {fps}")
+        print(f"Angle unit: {angle_unit}")
         print(f"Playback speed: {playback_speed}x")
         print(f"Loop: {loop}")
         print(f"{'='*60}\n")
@@ -172,11 +174,13 @@ class Revo2HandVisualizer:
                     
                     # Only update if hand is detected
                     if frame_data['joint_angles'] is not None:
-                        # Convert angles from degrees to radians
-                        joint_angles_rad = {
-                            k: np.radians(v) 
-                            for k, v in frame_data['joint_angles'].items()
-                        }
+                        joint_angles = frame_data['joint_angles']
+                        
+                        # Convert to radians if needed (PyBullet requires radians)
+                        if angle_unit == 'degrees':
+                            joint_angles_rad = {k: np.radians(v) for k, v in joint_angles.items()}
+                        else:
+                            joint_angles_rad = joint_angles
                         
                         # Set joint angles
                         self.set_joint_angles(joint_angles_rad)

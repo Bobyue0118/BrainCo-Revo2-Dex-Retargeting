@@ -19,7 +19,9 @@ pip install -r requirements.txt
 
 ## 2. 运行重定向
 
-### 方法 A: 使用自动化脚本（推荐）
+### 2A. 视频重定向
+
+#### 方法 A: 使用自动化脚本（推荐）
 
 ```bash
 ./run_retargeting.sh
@@ -29,7 +31,7 @@ pip install -r requirements.txt
 - 输入 `1` 使用 Revo2 Hand (原版)
 - 输入 `2` 使用 BrainCo Hand (新版)
 
-### 方法 B: 手动运行
+#### 方法 B: 手动运行
 
 **使用 Revo2 Hand:**
 ```bash
@@ -49,12 +51,43 @@ python hand_retargeting.py \
     --output output_annotated.mp4
 ```
 
+### 2B. 图像重定向 🆕
+
+#### 单张图像
+```bash
+python image_retargeting.py \
+    --image hand_photo.jpg \
+    --urdf "brainco_hand/brainco_right.urdf" \
+    --hand right
+```
+
+#### 图像序列（文件夹）
+```bash
+python image_retargeting.py \
+    --folder image_frames/ \
+    --pattern "*.png" \
+    --fps 30 \
+    --urdf "brainco_hand/brainco_right.urdf" \
+    --hand right \
+    --output annotated_frames/
+```
+
+#### 使用自动化脚本
+```bash
+./run_image_retargeting.sh
+```
+
+**脚本支持：**
+- 单张图像处理
+- 图像文件夹处理
+- 自定义图像列表
+
 **可视化结果:**
 ```bash
 python visualize_trajectory.py --trajectory hand_trajectory.json
 ```
 
-## 3. 3D 可视化 (NEW! 🎉)
+## 3. 3D 可视化
 
 ### 方法 A: 使用可视化脚本（推荐）
 
@@ -103,10 +136,55 @@ python realtime_visualize.py \
 ## 4. 输出文件
 
 - `output_annotated.mp4` - 带标注的视频
-- `hand_trajectory.json` - 关节角度轨迹数据
+- `hand_trajectory.json` - 完整11自由度轨迹数据
+- `hand_trajectory_6dof.json` - **6自由度可控关节轨迹（机器人控制用）** 🆕
 - `trajectory_plot.png` - 轨迹可视化图表
 
-## 4. 查看示例
+## 5. 6-DOF 机器人控制 🤖 (NEW!)
+
+BrainCo手部实际只有**6个可控自由度**（其他5个关节通过URDF的mimic机制自动跟随）：
+
+### 可控关节 (6 DOF):
+- **拇指**: 2 DOF (metacarpal + proximal)
+- **食指**: 1 DOF (proximal) 
+- **中指**: 1 DOF (proximal)
+- **无名指**: 1 DOF (proximal)
+- **小指**: 1 DOF (proximal)
+
+### 导出6-DOF控制数据:
+
+```bash
+# 查看6-DOF轨迹信息
+python dof6_control.py hand_trajectory_6dof.json
+
+# 导出为CSV格式（用于Excel/MATLAB）
+python dof6_control.py hand_trajectory_6dof.json --export csv
+
+# 导出为NumPy数组（用于Python）
+python dof6_control.py hand_trajectory_6dof.json --export numpy
+
+# 导出为可读文本
+python dof6_control.py hand_trajectory_6dof.json --export text
+
+# 显示每帧控制命令
+python dof6_control.py hand_trajectory_6dof.json --show-frames
+
+# 统计分析
+python dof6_control.py hand_trajectory_6dof.json --stats
+```
+
+### Mimic关节自动计算:
+
+以下关节会自动跟随主关节运动（在URDF中定义）：
+- `thumb_distal` = 1.0 × `thumb_proximal`
+- `index_distal` = 1.155 × `index_proximal`
+- `middle_distal` = 1.155 × `middle_proximal`
+- `ring_distal` = 1.155 × `ring_proximal`
+- `pinky_distal` = 1.155 × `pinky_proximal`
+
+你的机器人控制系统只需发送6个关节角度，其他5个会自动计算！
+
+## 6. 查看示例
 
 ```bash
 # 查看所有可用示例

@@ -1,0 +1,38 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Project-specific folders
+demo3/
+robot_control/
+frames/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv/
+
+# Output files
+*.mp4
+!human_hand_video.mp4
+*.avi
+*.png
+!trajectory_plot.png
+
+# Temporary files
+*.tmp
+*.log

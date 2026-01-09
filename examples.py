@@ -219,6 +219,70 @@ def example_motion_statistics():
         print(f"{joint_name:<30s} {avg_vel:8.2f} °/s  {max_vel:8.2f} °/s")
 
 
+def example_6dof_control():
+    """Example: Working with 6-DOF controllable trajectory."""
+    print("\n" + "="*60)
+    print("EXAMPLE 6: 6-DOF Robot Control (BrainCo Hand)")
+    print("="*60)
+    
+    trajectory_file = "hand_trajectory_6dof.json"
+    
+    if not Path(trajectory_file).exists():
+        print(f"Error: {trajectory_file} not found. Run example 1 first.")
+        return
+    
+    # Load 6-DOF trajectory
+    with open(trajectory_file, 'r') as f:
+        trajectory = json.load(f)
+    
+    print(f"\n✓ Loaded 6-DOF trajectory")
+    print(f"  Frames: {len(trajectory['frames'])}")
+    print(f"  FPS: {trajectory['fps']}")
+    print(f"  Duration: {len(trajectory['frames']) / trajectory['fps']:.2f} seconds")
+    
+    print("\n📋 Controllable Joints (6 DOF):")
+    for i, (short_name, full_name) in enumerate(zip(trajectory['joints'], trajectory['joint_names']), 1):
+        print(f"  {i}. {short_name:20} → {full_name}")
+    
+    # Show mimic relationships
+    if trajectory.get('mimic_info'):
+        print("\n🔗 Mimic Joints (auto-computed from controllable joints):")
+        for joint_name, info in trajectory['mimic_info'].items():
+            parent = info['parent']
+            mult = info['multiplier']
+            offset = info['offset']
+            print(f"  • {joint_name}")
+            print(f"    └─ mimics: {parent}")
+            print(f"       formula: angle = {mult} × parent_angle + {offset}")
+    
+    # Show sample frame
+    print("\n📊 Sample Frame (frame 100):")
+    if len(trajectory['frames']) > 100:
+        sample_frame = trajectory['frames'][100]
+        print("  Controllable joint angles (radians):")
+        for joint_name, angle in sample_frame.items():
+            print(f"    {joint_name}: {angle:7.4f} rad ({np.degrees(angle):6.2f}°)")
+    
+    # Export to CSV
+    csv_file = 'control_trajectory_6dof.csv'
+    print(f"\n💾 Exporting to CSV: {csv_file}")
+    
+    with open(csv_file, 'w') as f:
+        # Header
+        f.write('frame,timestamp,' + ','.join(trajectory['joint_names']) + '\n')
+        
+        # Data
+        for frame_idx, frame in enumerate(trajectory['frames']):
+            timestamp = frame_idx / trajectory['fps']
+            values = [str(frame.get(joint, 0.0)) for joint in trajectory['joint_names']]
+            f.write(f"{frame_idx},{timestamp:.4f}," + ','.join(values) + '\n')
+    
+    print(f"✓ CSV export complete: {csv_file}")
+    print("\n💡 You can now use this CSV file with your robot control system!")
+    print("   Each row = control command for one time step")
+    print("   Columns = 6 controllable joint angles in radians")
+
+
 def main():
     """Run all examples."""
     import sys
@@ -230,7 +294,8 @@ def main():
             2: example_analyze_trajectory,
             3: example_export_to_csv,
             4: example_custom_mapping,
-            5: example_motion_statistics
+            5: example_motion_statistics,
+            6: example_6dof_control
         }
         
         if example_num in examples:
@@ -246,6 +311,7 @@ def main():
         print("  3. Export to CSV")
         print("  4. Custom joint mapping")
         print("  5. Motion statistics")
+        print("  6. 6-DOF robot control (BrainCo) 🆕")
         print("\nUsage: python examples.py <example_number>")
         print("   or: python examples.py       (run all)")
         print()
@@ -258,6 +324,7 @@ def main():
             example_export_to_csv()
             example_custom_mapping()
             example_motion_statistics()
+            example_6dof_control()
             
             print("\n" + "="*60)
             print("All examples completed!")

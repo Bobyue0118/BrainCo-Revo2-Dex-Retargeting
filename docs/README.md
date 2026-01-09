@@ -315,15 +315,19 @@ Output: Trajectory Data
 
 ### Quick Reference
 - **Getting Started**: `QUICKSTART.md`
-- **What's New**: `WHATS_NEW.md`
+- **Complete Pipeline**: `../PIPELINE_GUIDE.md` ⭐ NEW (Images → 6-DOF + Rendered)
+- **6-DOF Robot Control**: `6DOF_CONTROL_GUIDE.md` ⭐
+- **Image Retargeting**: `IMAGE_RETARGETING_GUIDE.md` ⭐
 
 ### Detailed Guides
 - **Retargeting**: `README_RETARGETING.md`
 - **Visualization**: `VISUALIZATION_GUIDE.md`
+- **PyBullet vs SAPIEN**: `SIMULATOR_COMPARISON.md` ⭐
 - **Tutorial**: `DEMO_GUIDE.md`
+- **URDF Models**: `URDF_COMPARISON.md`
 
 ### Technical
-- **Project Details**: `PROJECT_SUMMARY.md`
+- **Change Log**: `CHANGELOG.md`
 - **Examples**: Run `python examples.py`
 
 ---

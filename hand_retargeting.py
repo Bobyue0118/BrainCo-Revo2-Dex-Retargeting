@@ -60,7 +60,10 @@ class Revo2HandRetargeting:
         # Parse URDF to get joint limits
         self.joint_limits = self._parse_urdf_joint_limits()
         
-        # Revo2 joint names (for right hand)
+        # Parse mimic joints to identify controllable DOFs
+        self.mimic_joints = self._parse_mimic_joints()
+        
+        # Revo2 joint names (for right hand) - 11 DOF total
         self.revo2_joints = {
             'thumb_metacarpal': f'{hand_side}_thumb_metacarpal_joint',
             'thumb_proximal': f'{hand_side}_thumb_proximal_joint',
@@ -73,6 +76,18 @@ class Revo2HandRetargeting:
             'ring_distal': f'{hand_side}_ring_distal_joint',
             'pinky_proximal': f'{hand_side}_pinky_proximal_joint',
             'pinky_distal': f'{hand_side}_pinky_distal_joint',
+        }
+        
+        # Controllable joints only (6 DOF for BrainCo with mimic)
+        # Thumb: 2 DOF (metacarpal + proximal, distal mimics proximal)
+        # Other fingers: 1 DOF each (proximal, distal mimics proximal)
+        self.controllable_joints = {
+            'thumb_metacarpal': f'{hand_side}_thumb_metacarpal_joint',
+            'thumb_proximal': f'{hand_side}_thumb_proximal_joint',
+            'index_proximal': f'{hand_side}_index_proximal_joint',
+            'middle_proximal': f'{hand_side}_middle_proximal_joint',
+            'ring_proximal': f'{hand_side}_ring_proximal_joint',
+            'pinky_proximal': f'{hand_side}_pinky_proximal_joint',
         }
         
     def _parse_urdf_joint_limits(self) -> Dict[str, Tuple[float, float]]:
@@ -90,6 +105,33 @@ class Revo2HandRetargeting:
                 joint_limits[joint_name] = (lower, upper)
         
         return joint_limits
+    
+    def _parse_mimic_joints(self) -> Dict[str, Dict[str, any]]:
+        """
+        Parse URDF file to extract mimic joint relationships.
+        
+        Returns:
+            Dictionary mapping joint names to mimic info:
+            {joint_name: {'parent': parent_joint, 'multiplier': mul, 'offset': off}}
+        """
+        tree = ET.parse(self.urdf_path)
+        root = tree.getroot()
+        
+        mimic_joints = {}
+        for joint in root.findall('.//joint[@type="revolute"]'):
+            joint_name = joint.get('name')
+            mimic = joint.find('mimic')
+            if mimic is not None:
+                parent_joint = mimic.get('joint')
+                multiplier = float(mimic.get('multiplier', 1.0))
+                offset = float(mimic.get('offset', 0.0))
+                mimic_joints[joint_name] = {
+                    'parent': parent_joint,
+                    'multiplier': multiplier,
+                    'offset': offset
+                }
+        
+        return mimic_joints
     
     def _calculate_angle(self, p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> float:
         """
@@ -263,6 +305,7 @@ class Revo2HandRetargeting:
         # Storage for trajectory
         trajectory = {
             'fps': fps,
+            'angle_unit': 'degrees',  # Angles stored in degrees for readability
             'frames': []
         }
         
@@ -312,8 +355,10 @@ class Revo2HandRetargeting:
                         # Retarget to Revo2 joint angles
                         joint_angles = self.retarget_hand_pose(hand_landmarks.landmark)
                         
-                        # Convert to degrees for display
+                        # Convert to degrees for storage (more human-readable)
                         joint_angles_deg = {k: np.degrees(v) for k, v in joint_angles.items()}
+                        
+                        # Save joint angles in DEGREES (human-readable format)
                         frame_data['joint_angles'] = joint_angles_deg
                         
                         # Display joint angles on frame
@@ -359,12 +404,56 @@ class Revo2HandRetargeting:
         
         # Save trajectory to JSON
         if save_trajectory:
+            # Save full 11 DOF trajectory
             trajectory_path = Path(video_path).parent / 'hand_trajectory.json'
             with open(trajectory_path, 'w') as f:
                 json.dump(trajectory, f, indent=2)
             print(f"Trajectory saved to: {trajectory_path}")
+            
+            # Save controllable 6 DOF trajectory (for actual robot control)
+            controllable_trajectory = self._extract_controllable_trajectory(trajectory)
+            controllable_path = Path(video_path).parent / 'hand_trajectory_6dof.json'
+            with open(controllable_path, 'w') as f:
+                json.dump(controllable_trajectory, f, indent=2)
+            print(f"6-DOF controllable trajectory saved to: {controllable_path}")
         
         return trajectory
+    
+    def _extract_controllable_trajectory(self, full_trajectory: Dict) -> Dict:
+        """
+        Extract only the controllable joints (6 DOF) from full 11 DOF trajectory.
+        
+        Args:
+            full_trajectory: Full 11 DOF trajectory data
+            
+        Returns:
+            6 DOF controllable trajectory
+        """
+        controllable_traj = {
+            'fps': full_trajectory['fps'],
+            'dof': 6,
+            'angle_unit': 'degrees',  # Angles in degrees for readability
+            'joints': list(self.controllable_joints.keys()),
+            'joint_names': list(self.controllable_joints.values()),
+            'mimic_info': {},
+            'frames': []
+        }
+        
+        # Add mimic information
+        for joint_name, mimic_info in self.mimic_joints.items():
+            controllable_traj['mimic_info'][joint_name] = mimic_info
+        
+        # Extract controllable joint angles from each frame
+        for frame in full_trajectory['frames']:
+            controllable_frame = {}
+            # Access joint_angles from frame data
+            if 'joint_angles' in frame and frame['joint_angles']:
+                for key, joint_name in self.controllable_joints.items():
+                    if joint_name in frame['joint_angles']:
+                        controllable_frame[joint_name] = frame['joint_angles'][joint_name]
+            controllable_traj['frames'].append(controllable_frame)
+        
+        return controllable_traj
 
 
 def main():

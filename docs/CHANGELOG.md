@@ -8,6 +8,15 @@ All notable changes to the BrainCo Hand Retargeting System.
 
 ### 🎨 New Features
 
+#### Angle Unit Change: Degrees Format ⭐
+- 📐 **BREAKING BUT BACKWARD COMPATIBLE**: Trajectories now store angles in **degrees** instead of radians
+- 📖 More human-readable and intuitive (75° instead of 1.31 rad)
+- 🏷️ Added `angle_unit` metadata field to JSON trajectory files
+- 🔄 Auto-detection and conversion in all visualization scripts
+- ✅ Backward compatible (defaults to radians if unit not specified)
+- 📊 Both degrees and radians shown in displays: `75.49° (1.32 rad)`
+- 📝 See `ANGLE_UNIT_UPDATE.md` for complete details
+
 #### SAPIEN Simulator Integration
 - ✨ **NEW**: Added `visualize_sapien.py` for advanced physics simulation
 - 🎨 Photo-realistic rendering with PBR materials
@@ -16,20 +25,49 @@ All notable changes to the BrainCo Hand Retargeting System.
 - 🌍 Realistic shadows and ground plane
 - 📊 Professional-quality visualization
 
+#### 6-DOF Robot Control Support ⭐
+- 🤖 **NEW**: Added `dof6_control.py` for robot control interface
+- 📊 Automatic extraction of 6 controllable DOF from 11 DOF trajectory
+- 🔗 URDF mimic joint parsing and relationship tracking
+- 💾 Export to multiple formats (CSV, NumPy, Text)
+- 📈 Frame-by-frame control command display
+- 📊 Statistical analysis of joint trajectories
+- ✅ Output: `hand_trajectory_6dof.json` (6 controllable joints in degrees)
+
+#### Hand Orientation Fix
+- 🔧 Fixed hand orientation in PyBullet visualization
+- ✅ Palm now faces camera, fingertips point upward
+- 📝 Applied fix to both `visualize_revo2_hand.py` and `realtime_visualize.py`
+
 #### Documentation Updates
-- 📚 **NEW**: `SIMULATOR_COMPARISON.md` - PyBullet vs SAPIEN comparison
+- 📚 **NEW**: `ANGLE_UNIT_UPDATE.md` - Comprehensive angle unit change documentation
+- 📚 **NEW**: `docs/6DOF_CONTROL_GUIDE.md` - Complete 6-DOF control guide
+- 📚 **NEW**: `docs/SIMULATOR_COMPARISON.md` - PyBullet vs SAPIEN comparison
+- 📝 Updated `docs/QUICKSTART.md` with 6-DOF usage examples
+- 📝 Updated `docs/README.md` with 6-DOF documentation links
 - 📝 Updated `VISUALIZATION_GUIDE.md` with SAPIEN instructions
-- 📝 Updated `README.md` with SAPIEN features
-- 🧹 Removed redundant documentation files
+- 📝 Updated main `README.md` with 6-DOF features
+- 🧹 Removed 5 redundant documentation files
 
 #### Script Enhancements
+- 🔧 Updated `hand_retargeting.py` with degrees output and 6-DOF extraction
+- 🔧 Added `_parse_mimic_joints()` method to parse URDF mimic relationships
+- 🔧 Added `_extract_controllable_trajectory()` method
+- 🔧 Updated `visualize_revo2_hand.py` to auto-detect and convert angle units
+- 🔧 Updated `dof6_control.py` to display both degrees and radians
+- 🔧 Updated `examples.py` with Example 6: 6-DOF Robot Control
 - 🔧 Updated `run_visualization.sh` with SAPIEN option (3-way menu)
-- ✅ Automatic SAPIEN installation check
-- 📦 Added `sapien>=2.2.0` to requirements.txt
+- ✅ Automatic SAPIEN installation check and graceful fallback
+- 📦 Added `sapien>=2.2.0` to requirements.txt (with platform notes)
 
 ### 📝 Files Created
 - `visualize_sapien.py` - SAPIEN-based visualizer (400+ lines)
+- `dof6_control.py` - 6-DOF control interface (300+ lines)
+- `ANGLE_UNIT_UPDATE.md` - Comprehensive angle unit change documentation
 - `docs/SIMULATOR_COMPARISON.md` - Comprehensive comparison guide
+- `docs/6DOF_CONTROL_GUIDE.md` - Complete 6-DOF control documentation
+- `ORIENTATION_FIX.md` - Hand orientation fix notes
+- `SAPIEN_NOTE.md` - Platform compatibility information
 
 ### 📝 Files Removed
 - `ITERATION_COMPLETE.md` - Redundant
@@ -44,6 +82,24 @@ Now offering **3 visualization modes**:
 1. **PyBullet** - Fast, interactive (default)
 2. **SAPIEN** - Advanced physics & rendering (NEW!)
 3. **Real-time** - Video + 3D side-by-side
+
+### 🤖 BrainCo Hand Control
+
+**6 Controllable DOF**:
+- Thumb: metacarpal + proximal (2 DOF)
+- Index, Middle, Ring, Pinky: proximal each (4 DOF)
+
+**5 Mimic DOF** (auto-computed):
+- All distal joints follow proximal joints via URDF mimic
+- Multipliers: 1.0 (thumb), 1.155 (fingers)
+
+### 📊 Output Files
+
+- `hand_trajectory.json` - Full 11-DOF trajectory
+- `hand_trajectory_6dof.json` - 6-DOF controllable trajectory ⭐ NEW
+- `control_trajectory_6dof.csv` - CSV export for robot control
+- `control_trajectory_6dof.npy` - NumPy array export
+- `control_trajectory_6dof.txt` - Human-readable text export
 
 ---
 
