@@ -57,7 +57,7 @@ class ImageHandRetargeting:
         # Process with MediaPipe
         with self.retargeting.mp_hands.Hands(
             static_image_mode=True,
-            max_num_hands=1,
+            max_num_hands=2,  # Detect both hands to find the correct one
             min_detection_confidence=0.5
         ) as hands:
             results = hands.process(image_rgb)
@@ -70,45 +70,67 @@ class ImageHandRetargeting:
                 'landmarks': None
             }
             
-            if results.multi_hand_landmarks:
-                hand_landmarks = results.multi_hand_landmarks[0]
-                result['hand_detected'] = True
-                
-                # Get joint angles
-                joint_angles = self.retargeting.retarget_hand_pose(hand_landmarks.landmark)
-                result['joint_angles'] = joint_angles
-                
-                # Store landmarks for visualization
-                result['landmarks'] = hand_landmarks
-                
-                # Draw landmarks if visualize
-                if visualize:
-                    annotated_image = image.copy()
-                    self.retargeting.mp_drawing.draw_landmarks(
-                        annotated_image,
-                        hand_landmarks,
-                        self.retargeting.mp_hands.HAND_CONNECTIONS,
-                        self.retargeting.mp_drawing_styles.get_default_hand_landmarks_style(),
-                        self.retargeting.mp_drawing_styles.get_default_hand_connections_style()
-                    )
+            if results.multi_hand_landmarks and results.multi_handedness:
+                # Find the hand matching the specified side
+                target_hand_idx = None
+                for idx, handedness in enumerate(results.multi_handedness):
+                    # MediaPipe returns "Left" or "Right" from camera's perspective
+                    # which is MIRRORED from the actual hand side
+                    # MediaPipe "Left" = actual right hand, MediaPipe "Right" = actual left hand
+                    detected_label = handedness.classification[0].label.lower()
                     
-                    # Display joint angles in degrees
-                    y_offset = 30
-                    for joint_name, angle in joint_angles.items():
-                        angle_deg = np.degrees(angle)
-                        short_name = joint_name.replace(f'{self.hand_side}_', '')
-                        text = f"{short_name}: {angle_deg:.1f}°"
-                        cv2.putText(annotated_image, text, (10, y_offset),
-                                  cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-                        y_offset += 20
+                    # Flip the label to get actual hand side
+                    if detected_label == 'left' and self.hand_side == 'right':
+                        target_hand_idx = idx
+                        break
+                    elif detected_label == 'right' and self.hand_side == 'left':
+                        target_hand_idx = idx
+                        break
+                
+                if target_hand_idx is not None:
+                    hand_landmarks = results.multi_hand_landmarks[target_hand_idx]
+                    result['hand_detected'] = True
+                    result['detected_hand_side'] = self.hand_side
                     
-                    # Show image
-                    cv2.imshow('Hand Detection', annotated_image)
-                    print("\nPress any key to continue...")
-                    cv2.waitKey(0)
-                    cv2.destroyAllWindows()
+                    # Get joint angles
+                    joint_angles = self.retargeting.retarget_hand_pose(hand_landmarks.landmark)
+                    result['joint_angles'] = joint_angles
                     
-                print(f"✓ Hand detected with {len(joint_angles)} joint angles")
+                    # Store landmarks for visualization
+                    result['landmarks'] = hand_landmarks
+                    
+                    # Draw landmarks if visualize
+                    if visualize:
+                        annotated_image = image.copy()
+                        self.retargeting.mp_drawing.draw_landmarks(
+                            annotated_image,
+                            hand_landmarks,
+                            self.retargeting.mp_hands.HAND_CONNECTIONS,
+                            self.retargeting.mp_drawing_styles.get_default_hand_landmarks_style(),
+                            self.retargeting.mp_drawing_styles.get_default_hand_connections_style()
+                        )
+                        
+                        # Display joint angles in degrees
+                        y_offset = 30
+                        for joint_name, angle in joint_angles.items():
+                            angle_deg = np.degrees(angle)
+                            short_name = joint_name.replace(f'{self.hand_side}_', '')
+                            text = f"{short_name}: {angle_deg:.1f}°"
+                            cv2.putText(annotated_image, text, (10, y_offset),
+                                      cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+                            y_offset += 20
+                        
+                        # Show image
+                        cv2.imshow('Hand Detection', annotated_image)
+                        print("\nPress any key to continue...")
+                        cv2.waitKey(0)
+                        cv2.destroyAllWindows()
+                    
+                    print(f"✓ {self.hand_side.capitalize()} hand detected with {len(joint_angles)} joint angles")
+                else:
+                    # Hand detected but not the right side
+                    detected_sides = [h.classification[0].label for h in results.multi_handedness]
+                    print(f"✗ {self.hand_side.capitalize()} hand not found. Detected: {detected_sides}")
             else:
                 print("✗ No hand detected in image")
         
@@ -176,7 +198,7 @@ class ImageHandRetargeting:
         # Process each image
         with self.retargeting.mp_hands.Hands(
             static_image_mode=True,
-            max_num_hands=1,
+            max_num_hands=2,  # Detect both hands to find the correct one
             min_detection_confidence=0.5
         ) as hands:
             
@@ -200,35 +222,49 @@ class ImageHandRetargeting:
                     'joint_angles': None
                 }
                 
-                if results.multi_hand_landmarks:
-                    hand_landmarks = results.multi_hand_landmarks[0]
-                    
-                    # Get joint angles
-                    joint_angles = self.retargeting.retarget_hand_pose(hand_landmarks.landmark)
-                    
-                    # Convert to degrees
-                    joint_angles_deg = {k: np.degrees(v) for k, v in joint_angles.items()}
-                    frame_data['joint_angles'] = joint_angles_deg
-                    
-                    # Save annotated image if output folder specified
-                    if output_folder:
-                        annotated_image = image.copy()
+                if results.multi_hand_landmarks and results.multi_handedness:
+                    # Find the hand matching the specified side
+                    target_hand_idx = None
+                    for hidx, handedness in enumerate(results.multi_handedness):
+                        detected_label = handedness.classification[0].label.lower()
                         
-                        # Draw landmarks
-                        self.retargeting.mp_drawing.draw_landmarks(
-                            annotated_image,
-                            hand_landmarks,
-                            self.retargeting.mp_hands.HAND_CONNECTIONS,
-                            self.retargeting.mp_drawing_styles.get_default_hand_landmarks_style(),
-                            self.retargeting.mp_drawing_styles.get_default_hand_connections_style()
-                        )
+                        # Flip the label: MediaPipe "Left" = actual right hand
+                        if detected_label == 'left' and self.hand_side == 'right':
+                            target_hand_idx = hidx
+                            break
+                        elif detected_label == 'right' and self.hand_side == 'left':
+                            target_hand_idx = hidx
+                            break
+                    
+                    if target_hand_idx is not None:
+                        hand_landmarks = results.multi_hand_landmarks[target_hand_idx]
                         
-                        # Add frame info
-                        cv2.putText(annotated_image, f"Frame: {idx}/{len(image_files)}", 
-                                  (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        # Get joint angles
+                        joint_angles = self.retargeting.retarget_hand_pose(hand_landmarks.landmark)
                         
-                        # Save
-                        output_path = output_folder / f"annotated_{image_path.name}"
+                        # Convert to degrees
+                        joint_angles_deg = {k: np.degrees(v) for k, v in joint_angles.items()}
+                        frame_data['joint_angles'] = joint_angles_deg
+                        
+                        # Save annotated image if output folder specified
+                        if output_folder:
+                            annotated_image = image.copy()
+                            
+                            # Draw landmarks
+                            self.retargeting.mp_drawing.draw_landmarks(
+                                annotated_image,
+                                hand_landmarks,
+                                self.retargeting.mp_hands.HAND_CONNECTIONS,
+                                self.retargeting.mp_drawing_styles.get_default_hand_landmarks_style(),
+                                self.retargeting.mp_drawing_styles.get_default_hand_connections_style()
+                            )
+                            
+                            # Add frame info and hand side
+                            cv2.putText(annotated_image, f"Frame: {idx}/{len(image_files)} ({self.hand_side.upper()})", 
+                                      (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            
+                            # Save
+                            output_path = output_folder / f"annotated_{image_path.name}"
                         cv2.imwrite(str(output_path), annotated_image)
                 
                 trajectory['frames'].append(frame_data)
@@ -296,7 +332,7 @@ class ImageHandRetargeting:
         
         with self.retargeting.mp_hands.Hands(
             static_image_mode=True,
-            max_num_hands=1,
+            max_num_hands=2,  # Detect both hands to find the correct one
             min_detection_confidence=0.5
         ) as hands:
             
@@ -316,11 +352,25 @@ class ImageHandRetargeting:
                     'joint_angles': None
                 }
                 
-                if results.multi_hand_landmarks:
-                    hand_landmarks = results.multi_hand_landmarks[0]
-                    joint_angles = self.retargeting.retarget_hand_pose(hand_landmarks.landmark)
-                    joint_angles_deg = {k: np.degrees(v) for k, v in joint_angles.items()}
-                    frame_data['joint_angles'] = joint_angles_deg
+                if results.multi_hand_landmarks and results.multi_handedness:
+                    # Find the hand matching the specified side
+                    target_hand_idx = None
+                    for hidx, handedness in enumerate(results.multi_handedness):
+                        detected_label = handedness.classification[0].label.lower()
+                        
+                        # Flip the label: MediaPipe "Left" = actual right hand
+                        if detected_label == 'left' and self.hand_side == 'right':
+                            target_hand_idx = hidx
+                            break
+                        elif detected_label == 'right' and self.hand_side == 'left':
+                            target_hand_idx = hidx
+                            break
+                    
+                    if target_hand_idx is not None:
+                        hand_landmarks = results.multi_hand_landmarks[target_hand_idx]
+                        joint_angles = self.retargeting.retarget_hand_pose(hand_landmarks.landmark)
+                        joint_angles_deg = {k: np.degrees(v) for k, v in joint_angles.items()}
+                        frame_data['joint_angles'] = joint_angles_deg
                 
                 trajectory['frames'].append(frame_data)
                 

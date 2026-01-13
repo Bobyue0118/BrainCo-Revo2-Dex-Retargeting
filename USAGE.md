@@ -16,6 +16,13 @@ python image_retargeting.py \
 
 ### Image Sequence → Complete Pipeline (Recommended)
 ```bash
+# URDF auto-selected based on --hand
+python image_to_6dof_pipeline.py \
+    --input YOUR_IMAGES_FOLDER/ \
+    --hand right \
+    --output result/
+
+# Or specify URDF manually
 python image_to_6dof_pipeline.py \
     --input YOUR_IMAGES_FOLDER/ \
     --urdf brainco_hand/brainco_right.urdf \
@@ -192,6 +199,9 @@ python image_to_6dof_pipeline.py \
 
 - **Angle Unit**: All outputs use **degrees** (human-readable)
 - **Detection**: MediaPipe detects hand landmarks automatically
+- **Hand Side Detection**: MediaPipe labels are mirrored - the system automatically flips them to detect the correct hand
+  - When you specify `--hand right`, it detects the actual right hand (MediaPipe's "Left" label)
+  - When you specify `--hand left`, it detects the actual left hand (MediaPipe's "Right" label)
 - **Rendering**: Hand palm faces **forward** (toward camera) in 3D visualizations
 - **Frame Rate**: Default 30 FPS, adjustable with `--fps` option
 - **Image Formats**: Supports `.jpg`, `.jpeg`, `.png`, `.JPG`, `.PNG`

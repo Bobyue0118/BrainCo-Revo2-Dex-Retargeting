@@ -18,6 +18,138 @@ import json
 import subprocess
 import shutil
 from datetime import datetime
+import numpy as np
+
+
+# Motor control normalization parameters
+# Maximum joint angles in degrees for each joint (supports both left and right hands)
+JOINT_MAX_ANGLES = {
+    # Right hand joints
+    'right_thumb_metacarpal_joint': 90,
+    'right_thumb_proximal_joint': 59,
+    'right_index_proximal_joint': 81,
+    'right_middle_proximal_joint': 81,
+    'right_ring_proximal_joint': 81,
+    'right_pinky_proximal_joint': 81,
+    # Left hand joints (same max angles as right hand)
+    'left_thumb_metacarpal_joint': 90,
+    'left_thumb_proximal_joint': 59,
+    'left_index_proximal_joint': 81,
+    'left_middle_proximal_joint': 81,
+    'left_ring_proximal_joint': 81,
+    'left_pinky_proximal_joint': 81
+}
+
+# Motor command range
+MOTOR_MIN = 0
+MOTOR_MAX = 1000
+
+
+def generate_motor_commands(trajectory_6dof_path: str, output_path: str):
+    """
+    Generate motor control commands from 6-DOF trajectory.
+    
+    Process:
+    1. Normalize each joint angle by its maximum angle
+    2. Remap normalized values to motor range [0, 1000]
+    
+    Args:
+        trajectory_6dof_path: Path to 6-DOF trajectory JSON
+        output_path: Path to save motor commands CSV
+    """
+    # Load 6-DOF trajectory
+    with open(trajectory_6dof_path, 'r') as f:
+        trajectory = json.load(f)
+    
+    frames = trajectory['frames']
+    
+    # Auto-detect joint names from the trajectory data
+    # Get joint names from the first valid frame or from trajectory metadata
+    joint_names = None
+    if 'joint_names' in trajectory:
+        joint_names = trajectory['joint_names']
+    else:
+        # Detect from first valid frame
+        for frame_data in frames:
+            if frame_data is not None and isinstance(frame_data, dict):
+                if 'joint_angles' in frame_data and frame_data['joint_angles'] is not None:
+                    joint_names = [j for j in frame_data['joint_angles'].keys() if j in JOINT_MAX_ANGLES]
+                    break
+                else:
+                    # Flat structure
+                    joint_names = [j for j in frame_data.keys() if j in JOINT_MAX_ANGLES]
+                    break
+    
+    if not joint_names:
+        raise ValueError("Could not detect joint names from trajectory")
+    
+    # Generate motor commands
+    motor_commands = []
+    
+    for frame_data in frames:
+        # 6-DOF trajectory frames are flat dictionaries with joint angles directly
+        # Check if frame_data is None or empty
+        if frame_data is None:
+            motor_commands.append(None)
+            continue
+        
+        # Get joint angles - handle both flat and nested structure
+        if isinstance(frame_data, dict):
+            if 'joint_angles' in frame_data:
+                joint_angles = frame_data['joint_angles']
+                if joint_angles is None:
+                    motor_commands.append(None)
+                    continue
+            else:
+                # Flat structure - frame_data IS the joint angles
+                joint_angles = frame_data
+        else:
+            motor_commands.append(None)
+            continue
+        
+        frame_motor = {}
+        for joint_name in joint_names:
+            if joint_name in joint_angles and joint_name in JOINT_MAX_ANGLES:
+                angle = joint_angles[joint_name]
+                max_angle = JOINT_MAX_ANGLES[joint_name]
+                
+                # Normalize by max angle (clamp to [0, 1])
+                normalized = np.clip(angle / max_angle, 0, 1)
+                
+                # Remap to motor range [0, 1000]
+                motor_value = int(normalized * (MOTOR_MAX - MOTOR_MIN) + MOTOR_MIN)
+                frame_motor[joint_name] = motor_value
+        
+        motor_commands.append(frame_motor)
+    
+    # Save to CSV
+    with open(output_path, 'w') as f:
+        # Header
+        f.write('frame,' + ','.join(joint_names) + '\n')
+        
+        # Data
+        for idx, motor_cmd in enumerate(motor_commands):
+            if motor_cmd is None:
+                # Write empty values for skipped frames
+                f.write(f'{idx},' + ','.join([''] * len(joint_names)) + '\n')
+            else:
+                values = [str(motor_cmd.get(j, 0)) for j in joint_names]
+                f.write(f'{idx},' + ','.join(values) + '\n')
+    
+    # Also save as JSON for easier programmatic access
+    json_output_path = output_path.replace('.csv', '.json')
+    motor_trajectory = {
+        'description': 'Motor control commands normalized and remapped to [0, 1000]',
+        'normalization': {j: f'angle / {JOINT_MAX_ANGLES[j]}' for j in joint_names if j in JOINT_MAX_ANGLES},
+        'motor_range': [MOTOR_MIN, MOTOR_MAX],
+        'joint_max_angles': {j: JOINT_MAX_ANGLES[j] for j in joint_names if j in JOINT_MAX_ANGLES},
+        'frames': motor_commands
+    }
+    
+    with open(json_output_path, 'w') as f:
+        json.dump(motor_trajectory, f, indent=2)
+    
+    return len([m for m in motor_commands if m is not None])
 
 
 def print_header(title: str):
@@ -76,8 +208,8 @@ Examples:
     # Required arguments
     parser.add_argument('--input', type=str, required=True,
                        help='Input image folder')
-    parser.add_argument('--urdf', type=str, required=True,
-                       help='Path to URDF file')
+    parser.add_argument('--urdf', type=str, required=False,
+                       help='Path to URDF file (auto-selected based on --hand if not specified)')
     parser.add_argument('--output', type=str, required=True,
                        help='Output folder for all results')
     
@@ -110,6 +242,16 @@ Examples:
         print(f"✗ Error: Input folder not found: {input_folder}")
         sys.exit(1)
     
+    # Auto-select URDF if not specified
+    if args.urdf is None:
+        urdf_path = Path(f"brainco_hand/brainco_{args.hand}.urdf")
+        if not urdf_path.exists():
+            print(f"✗ Error: Auto-selected URDF not found: {urdf_path}")
+            print(f"  Please specify URDF with --urdf option")
+            sys.exit(1)
+        args.urdf = str(urdf_path)
+        print(f"ℹ Auto-selected URDF: {args.urdf}")
+    
     if not Path(args.urdf).exists():
         print(f"✗ Error: URDF file not found: {args.urdf}")
         sys.exit(1)
@@ -138,6 +280,35 @@ Examples:
     rendered_folder.mkdir(exist_ok=True)
     trajectories_folder.mkdir(exist_ok=True)
     control_folder.mkdir(exist_ok=True)
+    
+    # Validate URDF matches hand side and auto-correct if mismatched
+    urdf_filename = Path(args.urdf).name.lower()
+    correct_urdf = Path(f"brainco_hand/brainco_{args.hand}.urdf")
+    
+    if 'left' in urdf_filename and args.hand == 'right':
+        print(f"\n⚠ WARNING: Using LEFT hand URDF ({args.urdf}) but detecting RIGHT hand!")
+        print(f"  Auto-correcting to: {correct_urdf}")
+        if correct_urdf.exists():
+            args.urdf = str(correct_urdf)
+            print(f"  ✓ Switched to correct URDF for right hand")
+        else:
+            print(f"  ✗ Error: Correct URDF not found: {correct_urdf}")
+            response = input("\nContinue with mismatched URDF anyway? (y/N): ")
+            if response.lower() != 'y':
+                print("Aborted.")
+                sys.exit(0)
+    elif 'right' in urdf_filename and args.hand == 'left':
+        print(f"\n⚠ WARNING: Using RIGHT hand URDF ({args.urdf}) but detecting LEFT hand!")
+        print(f"  Auto-correcting to: {correct_urdf}")
+        if correct_urdf.exists():
+            args.urdf = str(correct_urdf)
+            print(f"  ✓ Switched to correct URDF for left hand")
+        else:
+            print(f"  ✗ Error: Correct URDF not found: {correct_urdf}")
+            response = input("\nContinue with mismatched URDF anyway? (y/N): ")
+            if response.lower() != 'y':
+                print("Aborted.")
+                sys.exit(0)
     
     print_header("Image-to-6DOF Pipeline")
     print(f"Input:     {input_folder}")
@@ -249,6 +420,26 @@ Examples:
         print("  ⊘ Skipped (--skip-export)")
     
     # =================================================================
+    # STEP 4: Generate motor control commands
+    # =================================================================
+    print_header("STEP 4: Generating Motor Control Commands")
+    
+    traj_6dof_path = trajectories_folder / 'hand_trajectory_6dof.json'
+    motor_csv_path = control_folder / 'motor_commands.csv'
+    
+    if traj_6dof_path.exists():
+        num_frames = generate_motor_commands(str(traj_6dof_path), str(motor_csv_path))
+        print(f"✓ Generated motor commands for {num_frames} frames")
+        print(f"  → Motor commands (CSV): {motor_csv_path}")
+        print(f"  → Motor commands (JSON): {control_folder / 'motor_commands.json'}")
+        print(f"\n  Normalization:")
+        for joint, max_angle in JOINT_MAX_ANGLES.items():
+            short_name = joint.replace('right_', '').replace('_joint', '')
+            print(f"    {short_name}: angle / {max_angle}° → [0, 1000]")
+    else:
+        print(f"✗ Error: 6-DOF trajectory not found: {traj_6dof_path}")
+    
+    # =================================================================
     # SUMMARY
     # =================================================================
     print_header("Pipeline Complete! ✓")
@@ -267,11 +458,14 @@ Examples:
     if not args.skip_export:
         for fmt in export_formats:
             if fmt == 'csv':
-                print(f"      └── control_trajectory_6dof.csv")
+                print(f"      ├── control_trajectory_6dof.csv")
             elif fmt == 'numpy':
-                print(f"      └── control_trajectory_6dof.npy")
+                print(f"      ├── control_trajectory_6dof.npy")
             elif fmt == 'text':
-                print(f"      └── control_trajectory_6dof.txt")
+                print(f"      ├── control_trajectory_6dof.txt")
+    
+    print(f"      ├── motor_commands.csv     # Motor commands [0-1000]")
+    print(f"      └── motor_commands.json    # Motor commands with metadata")
     
     print(f"\n📊 Detection rate: {detected_frames}/{total_frames} frames ({100*detected_frames/total_frames:.1f}%)")
     

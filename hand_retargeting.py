@@ -312,7 +312,7 @@ class Revo2HandRetargeting:
         # Initialize MediaPipe Hands
         with self.mp_hands.Hands(
             static_image_mode=False,
-            max_num_hands=1,
+            max_num_hands=2,  # Detect both hands to find the correct one
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         ) as hands:
@@ -340,9 +340,24 @@ class Revo2HandRetargeting:
                     'joint_angles': None
                 }
                 
-                # Process hand landmarks
-                if results.multi_hand_landmarks:
-                    for hand_landmarks in results.multi_hand_landmarks:
+                # Process hand landmarks - find the correct hand side
+                if results.multi_hand_landmarks and results.multi_handedness:
+                    # Find the hand matching the specified side
+                    target_hand_idx = None
+                    for hidx, handedness in enumerate(results.multi_handedness):
+                        detected_label = handedness.classification[0].label.lower()
+                        
+                        # Flip the label: MediaPipe "Left" = actual right hand
+                        if detected_label == 'left' and self.hand_side == 'right':
+                            target_hand_idx = hidx
+                            break
+                        elif detected_label == 'right' and self.hand_side == 'left':
+                            target_hand_idx = hidx
+                            break
+                    
+                    if target_hand_idx is not None:
+                        hand_landmarks = results.multi_hand_landmarks[target_hand_idx]
+                        
                         # Draw hand landmarks on the image
                         self.mp_drawing.draw_landmarks(
                             image,
