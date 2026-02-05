@@ -58,7 +58,7 @@ class ImageHandRetargeting:
         with self.retargeting.mp_hands.Hands(
             static_image_mode=True,
             max_num_hands=2,  # Detect both hands to find the correct one
-            min_detection_confidence=0.5
+            min_detection_confidence=0.05
         ) as hands:
             results = hands.process(image_rgb)
             
@@ -199,7 +199,7 @@ class ImageHandRetargeting:
         with self.retargeting.mp_hands.Hands(
             static_image_mode=True,
             max_num_hands=2,  # Detect both hands to find the correct one
-            min_detection_confidence=0.5
+            min_detection_confidence=0.05
         ) as hands:
             
             for idx, image_path in enumerate(image_files):
@@ -333,7 +333,7 @@ class ImageHandRetargeting:
         with self.retargeting.mp_hands.Hands(
             static_image_mode=True,
             max_num_hands=2,  # Detect both hands to find the correct one
-            min_detection_confidence=0.5
+            min_detection_confidence=0.05
         ) as hands:
             
             for idx, image_path in enumerate(image_paths):
