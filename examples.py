@@ -17,7 +17,7 @@ def example_basic_usage():
     
     # Initialize retargeting system
     retargeting = Revo2HandRetargeting(
-        urdf_path="Revo2_URDF Description_ROS2/revo2_description/urdf/revo2_right_hand.urdf",
+        urdf_path="brainco_hand/brainco_right.urdf",
         hand_side="right"
     )
     

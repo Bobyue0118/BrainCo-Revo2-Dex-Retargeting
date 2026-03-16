@@ -39,3 +39,8 @@ ENV/
 # Temporary files
 *.tmp
 *.log
+hand_trajectory_scaled.json
+hand_trajectory.csv
+control_trajectory_6dof.csv
+hand_trajectory_6dof.json
+hand_trajectory.json

@@ -1,248 +1,73 @@
 # 📚 BrainCo Hand Retargeting System
 
-**Version 2.1.0** - Complete hand motion retargeting from video to robotic hand
-
-All documentation has been moved to the `docs/` folder for better organization.
-
----
-
-## 📖 Documentation Files
-
-### Quick Start
-- **[docs/README.md](docs/README.md)** - Project overview and main documentation
-- **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - Quick reference guide (CN/EN)
-
-### Visualization
-- **[docs/VISUALIZATION_GUIDE.md](docs/VISUALIZATION_GUIDE.md)** - PyBullet & SAPIEN guide
-- **[docs/SIMULATOR_COMPARISON.md](docs/SIMULATOR_COMPARISON.md)** - PyBullet vs SAPIEN ⭐ NEW
-
-### Technical Guides
-- **[docs/README_RETARGETING.md](docs/README_RETARGETING.md)** - Complete retargeting guide
-- **[docs/URDF_COMPARISON.md](docs/URDF_COMPARISON.md)** - URDF model comparison
-- **[docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md)** - Step-by-step tutorial
-
-### Project Info
-- **[docs/CHANGELOG.md](docs/CHANGELOG.md)** - Version history
-- **[UPDATE_NOTES.md](UPDATE_NOTES.md)** - Latest update summary
-
----
-
-## 🚀 Quick Start
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Optional: Install SAPIEN for advanced visualization
-pip install sapien
-
-# Run video retargeting
-./run_retargeting.sh
-
-# Run image retargeting
-./run_image_retargeting.sh
-
-# Complete pipeline: images → 6-DOF control ⭐ NEW
-python image_to_6dof_pipeline.py \
-    --input image_frames/ \
-    --urdf brainco_hand/brainco_right.urdf \
-    --hand right \
-    --output result/
-
-# View in 3D (choose PyBullet, SAPIEN, or Real-time)
-./run_visualization.sh
-```
+**Version 2.1.0** - Complete hand motion retargeting from video/image to robotic hand control
 
 ---
 
 ## ✨ Key Features
 
 - 🎥 **Video Processing** - Extract hand motion from any video
-- 🖼️ **Image Support** - Process single images or image sequences ⭐
-- 🔄 **Complete Pipeline** - Images → 6-DOF control + rendered hand poses ⭐ NEW
+- 🖼️ **Image Support** - Process single images or image sequences
+- 🔄 **Complete Pipeline** - Images → 6-DOF control + rendered hand poses
 - 🤖 **Smart Retargeting** - Map human joints to 11-DOF robotic hand
-- 🎮 **3D Visualization** - PyBullet (fast) & SAPIEN (realistic) ⭐
+- 🎮 **3D Visualization** - PyBullet (fast & interactive)
 - ⚡ **Real-time Mode** - See video and 3D hand together
 - 📊 **Data Analysis** - Visualize trajectories and statistics
-- 🔄 **Multi-URDF** - Support for Revo2 and BrainCo models
-- 🤖 **6-DOF Control** - Export controllable joint commands for robot ⭐
+- 🤖 **6-DOF Control** - Export controllable joint commands for robot
 
 ---
 
-## 🎮 Visualization Options
+## 🚀 Quick Start
 
-### 1. PyBullet (Fast & Interactive)
+### 1. Install Dependencies
+
 ```bash
-python visualize_revo2_hand.py --urdf <path> --trajectory hand_trajectory.json
+# Core dependencies (mediapipe, opencv, etc.)
+pip install -r requirements.txt
+
+# PyBullet for 3D visualization:
+# ⚠️ macOS Apple Silicon (M1/M2/M3/M4): pip install will fail, use conda
+conda install -c conda-forge pybullet
+
+# Linux / Windows
+pip install pybullet
+
+# Optional: SAPIEN for advanced visualization (Linux/Windows only)
+# pip install sapien
 ```
 
-### 2. SAPIEN (Advanced Physics & Rendering) ⭐ NEW
-```bash
-python visualize_sapien.py --urdf <path> --trajectory hand_trajectory.json
-```
+### 2. Run
 
-### 3. Real-time (Video + 3D)
 ```bash
-python realtime_visualize.py --video <path> --urdf <path> --hand right
+# Video retargeting (generates hand_trajectory.json)
+python hand_retargeting.py \
+    --video human_hand_video.mp4 \
+    --urdf brainco_hand/brainco_right.urdf \
+    --hand right
+
+# Complete pipeline: images → 6-DOF control
+python image_to_6dof_pipeline.py \
+    --input image_frames/ \
+    --hand right \
+    --output result/
+
+# 3D visualization with PyBullet
+python visualize_revo2_hand.py \
+    --urdf brainco_hand/brainco_right.urdf \
+    --trajectory hand_trajectory.json \
+    --loop
 ```
 
 ---
 
 ## 🤖 Supported Hand Models
 
-This system supports **two URDF models**:
+| Model | URDF Path | Status |
+|---|---|---|
+| BrainCo Hand ⭐ | `brainco_hand/brainco_right.urdf` | Recommended |
+| Revo2 Original | `Revo2_URDF Description_ROS2/revo2_description/urdf/revo2_right_hand.urdf` | Legacy |
 
-### 1. Revo2 (Original)
-Location: `Revo2_URDF Description_ROS2/revo2_description/urdf/`
-- `revo2_right_hand.urdf`
-- `revo2_left_hand.urdf`
-
-### 2. BrainCo Hand (New)
-Location: `brainco_hand/`
-- `brainco_right.urdf`
-- `brainco_left.urdf`
-
-Both models have the same 11 DOF joint structure and are compatible with all scripts.
-
----
-
-## 📂 Project Structure
-
-```
-brainco/
-├── docs/                        # 📚 All documentation (8 files)
-│   ├── README.md                # Main documentation
-│   ├── QUICKSTART.md            # Quick start guide
-│   ├── VISUALIZATION_GUIDE.md   # PyBullet & SAPIEN
-│   ├── SIMULATOR_COMPARISON.md  # Comparison guide ⭐
-│   ├── URDF_COMPARISON.md       # URDF models
-│   ├── README_RETARGETING.md    # Technical details
-│   ├── DEMO_GUIDE.md            # Tutorial
-│   └── CHANGELOG.md             # Version history
-├── hand_retargeting.py          # Main retargeting script (video)
-├── image_retargeting.py         # Image retargeting script ⭐ NEW
-├── visualize_revo2_hand.py      # PyBullet 3D visualization
-├── visualize_sapien.py          # SAPIEN visualization ⭐
-├── realtime_visualize.py        # Real-time mode
-├── visualize_trajectory.py      # 2D plotting
-├── dof6_control.py              # 6-DOF control demo ⭐
-├── examples.py                  # Example scripts (6 examples)
-├── run_retargeting.sh           # Automated video retargeting
-├── run_image_retargeting.sh     # Automated image retargeting ⭐ NEW
-├── run_visualization.sh         # Automated visualization
-├── requirements.txt             # Dependencies
-├── Revo2_URDF Description_ROS2/ # Original Revo2 URDF
-└── brainco_hand/                # New BrainCo hand URDF
-    ├── brainco_right.urdf
-    ├── brainco_left.urdf
-    └── meshes/                  # STL mesh files
-```
-
----
-
-## 🎯 Usage Examples
-
-### Video Retargeting (Original)
-
-#### Using Revo2 URDF (Original)
-```bash
-python hand_retargeting.py \
-    --video human_hand_video.mp4 \
-    --urdf "Revo2_URDF Description_ROS2/revo2_description/urdf/revo2_right_hand.urdf" \
-    --hand right
-```
-
-#### Using BrainCo Hand URDF (New)
-```bash
-python hand_retargeting.py \
-    --video human_hand_video.mp4 \
-    --urdf "brainco_hand/brainco_right.urdf" \
-    --hand right
-```
-
-### Image Retargeting ⭐ NEW
-
-#### Single Image
-```bash
-python image_retargeting.py \
-    --image hand_photo.jpg \
-    --urdf "brainco_hand/brainco_right.urdf" \
-    --hand right
-```
-
-#### Image Sequence (Folder)
-```bash
-python image_retargeting.py \
-    --folder image_frames/ \
-    --pattern "*.png" \
-    --fps 30 \
-    --urdf "brainco_hand/brainco_right.urdf" \
-    --hand right \
-    --output annotated_frames/
-```
-
-#### Complete Pipeline: Images → 6-DOF + Rendered Hand ⭐ NEW
-```bash
-python image_to_6dof_pipeline.py \
-    --input image_frames/ \
-    --urdf "brainco_hand/brainco_right.urdf" \
-    --hand right \
-    --output result/ \
-    --fps 30
-```
-
-**Output:**
-- `result/annotated_images/` - Original images with landmarks
-- `result/rendered_hand_poses/` - Retargeted robotic hand poses ⭐
-- `result/trajectories/` - 11-DOF & 6-DOF JSON trajectories
-- `result/control_commands/` - CSV control commands for robot ⭐
-
-#### Automated Script
-```bash
-./run_image_retargeting.sh
-```
-
-### PyBullet Visualization
-```bash
-python visualize_revo2_hand.py \
-    --urdf "brainco_hand/brainco_right.urdf" \
-    --trajectory hand_trajectory.json \
-    --loop
-```
-
-### SAPIEN Visualization ⭐ NEW
-```bash
-python visualize_sapien.py \
-    --urdf "brainco_hand/brainco_right.urdf" \
-    --trajectory hand_trajectory.json \
-    --speed 1.0 \
-    --loop
-```
-
-### 6-DOF Robot Control ⭐ NEW
-```bash
-# View 6-DOF trajectory info
-python dof6_control.py hand_trajectory_6dof.json
-
-# Export to CSV for robot control
-python dof6_control.py hand_trajectory_6dof.json --export csv
-
-# Show frame-by-frame control commands
-python dof6_control.py hand_trajectory_6dof.json --show-frames
-```
-
----
-
-## 📊 What's New in v2.1.0
-
-- ✨ **SAPIEN Integration** - Photo-realistic rendering & advanced physics
-- 🎨 **Enhanced Visualization** - 3 modes (PyBullet, SAPIEN, Real-time)
-- 🤖 **6-DOF Control Output** - Export controllable joint commands for real robots
-- 📚 **Documentation Cleanup** - Removed 5 redundant files
-- 📖 **New Guide** - Comprehensive simulator comparison
-- 🔧 **Fixed Hand Orientation** - Palm faces camera, fingertips point upward
-
-See **[UPDATE_NOTES.md](UPDATE_NOTES.md)** for details.
+Both support left/right hand variants and the same 11-DOF joint structure.
 
 ---
 
@@ -270,4 +95,121 @@ Use `dof6_control.py` to export the 6-DOF trajectory to CSV/NumPy/text format fo
 
 ---
 
-For complete documentation, see **[docs/README.md](docs/README.md)**
+## 📂 Project Structure
+
+```
+BrainCo-Revo2-Dex-Retargeting/
+├── brainco_hand/                      # BrainCo hand URDF models
+│   ├── brainco_right.urdf
+│   ├── brainco_left.urdf
+│   └── meshes/                        # STL mesh files
+├── hand_retargeting.py                # Core: video → joint angles
+├── image_retargeting.py               # Image / sequence retargeting
+├── image_to_6dof_pipeline.py          # End-to-end pipeline
+├── dof6_control.py                    # 6-DOF trajectory export
+├── visualize_revo2_hand.py            # PyBullet 3D visualization
+├── realtime_visualize.py              # Real-time video + 3D mode
+├── visualize_trajectory.py            # 2D trajectory plot (11-DOF)
+├── visualize_trajectory_6dof.py       # 2D trajectory plot (6-DOF)
+├── render_hand_poses.py               # Headless batch image rendering
+├── examples.py                        # API usage examples (6 examples)
+├── requirements.txt                   # Python dependencies
+└── Revo2_URDF Description_ROS2/       # Original Revo2 URDF
+```
+
+---
+
+## 🎮 Visualization Options
+
+| Script | Mode | macOS |
+|---|---|---|
+| `visualize_revo2_hand.py` | PyBullet 3D replay | ✅ |
+| `realtime_visualize.py` | Video + 3D side-by-side | ✅ |
+| `visualize_trajectory_6dof.py` | 6-DOF curve plots | ✅ |
+| `visualize_trajectory.py` | 11-DOF curve plots | ✅ |
+| `visualize_sapien.py` | SAPIEN advanced render | ❌ |
+
+### PyBullet 3D Replay
+```bash
+python visualize_revo2_hand.py \
+    --urdf brainco_hand/brainco_right.urdf \
+    --trajectory hand_trajectory.json \
+    --speed 1.0 --loop
+# Controls: Space = pause/resume, q = quit
+```
+
+### Real-time Video + 3D
+```bash
+python realtime_visualize.py \
+    --video human_hand_video.mp4 \
+    --urdf brainco_hand/brainco_right.urdf \
+    --hand right
+```
+
+### Trajectory Curve Plot
+```bash
+python visualize_trajectory_6dof.py \
+    --input hand_trajectory_6dof.json \
+    --combined
+```
+
+---
+
+## 🎯 Complete Pipeline Example
+
+```bash
+# Step 1: Extract frames from video
+mkdir frames
+ffmpeg -i human_hand_video.mp4 -vf fps=10 frames/frame_%04d.jpg
+
+# Step 2: Run full pipeline
+python image_to_6dof_pipeline.py \
+    --input frames/ \
+    --hand right \
+    --output result/
+```
+
+**Output:**
+```
+result/<timestamp>/
+├── annotated_images/          ← Hand landmark overlays
+├── rendered_hand_poses/       ← Robotic hand renders
+├── trajectories/
+│   ├── hand_trajectory.json       (11-DOF)
+│   └── hand_trajectory_6dof.json  (6-DOF controllable)
+└── control_commands/
+    ├── control_trajectory_6dof.csv
+    ├── motor_commands.csv         (normalized to [0, 1000])
+    └── motor_commands.json
+```
+
+---
+
+## 🤖 Use in Robot Control System
+
+```python
+import json, time
+
+with open('result/.../trajectories/hand_trajectory_6dof.json') as f:
+    trajectory = json.load(f)
+
+for frame in trajectory['frames']:
+    robot.set_joint_angles({
+        'thumb_base':     frame['right_thumb_metacarpal_joint'],
+        'thumb_proximal': frame['right_thumb_proximal_joint'],
+        'index':          frame['right_index_proximal_joint'],
+        'middle':         frame['right_middle_proximal_joint'],
+        'ring':           frame['right_ring_proximal_joint'],
+        'pinky':          frame['right_pinky_proximal_joint'],
+    })
+    time.sleep(1.0 / trajectory['fps'])
+```
+
+---
+
+## 📊 What's New in v2.1.0
+
+- 🤖 **6-DOF Control Output** - Export motor commands [0-1000] for real robots
+- 🖼️ **Image Pipeline** - Process image sequences, not just video
+- 🎨 **SAPIEN Integration** - Photo-realistic rendering (Linux/Windows)
+- 🔧 **macOS Apple Silicon** - PyBullet via conda-forge confirmed working

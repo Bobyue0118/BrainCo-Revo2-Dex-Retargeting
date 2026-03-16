@@ -38,6 +38,8 @@ class Revo2HandVisualizer:
         
         # Set up the simulation environment
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        # Also add the URDF's parent directory so relative mesh paths can be found
+        p.setAdditionalSearchPath(str(Path(urdf_path).resolve().parent))
         p.setGravity(0, 0, -9.8)
         
         # Configure camera for better viewing angle
