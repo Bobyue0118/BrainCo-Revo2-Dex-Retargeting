@@ -10,8 +10,8 @@
 - 🖼️ **Image Support** - Process single images or image sequences
 - 🔄 **Complete Pipeline** - Images → 6-DOF control + rendered hand poses
 - 🤖 **Smart Retargeting** - Map human joints to 11-DOF robotic hand
-- 🎮 **3D Visualization** - PyBullet (fast & interactive)
-- ⚡ **Real-time Mode** - See video and 3D hand together
+- 🎮 **3D Visualization** - PyBullet (fast & interactive) & SAPIEN (realistic) ⭐
+- ⚡ **Real-time Mode** - See webcam/video, detected hand landmarks, and 3D BrainCo hand together
 - 📊 **Data Analysis** - Visualize trajectories and statistics
 - 🤖 **6-DOF Control** - Export controllable joint commands for robot
 
@@ -56,6 +56,12 @@ python visualize_revo2_hand.py \
     --urdf brainco_hand/brainco_right.urdf \
     --trajectory hand_trajectory.json \
     --loop
+
+# Realtime webcam visualization
+python realtime_visualize.py \
+    --camera-index 0 \
+    --urdf brainco_hand/brainco_right.urdf \
+    --hand right
 ```
 
 ---

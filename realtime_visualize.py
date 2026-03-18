@@ -1,367 +1,589 @@
 #!/usr/bin/env python3
 """
-Real-time Hand Retargeting with 3D Visualization
-Processes video and shows both the original video and the retargeted Revo2 hand in 3D.
+Realtime hand retargeting visualizer.
+
+Opens either a webcam or a video file, detects the requested human hand with
+MediaPipe, retargets it to the BrainCo/Revo2 URDF, and shows both views in one
+window in realtime.
 """
+
+import argparse
+import json
+import platform
+import time
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-import mediapipe as mp
-import pybullet as p
-import pybullet_data
-import json
-import time
-from pathlib import Path
-from typing import Dict
-import xml.etree.ElementTree as ET
-import argparse
+
+from hand_retargeting import Revo2HandRetargeting
+from render_hand_poses import HandPoseRenderer
 
 
 class RealtimeRetargetingVisualizer:
-    """
-    Real-time hand retargeting with side-by-side video and 3D visualization.
-    """
-    
-    def __init__(self, urdf_path: str, hand_side: str = "right"):
-        """
-        Initialize the system.
-        
-        Args:
-            urdf_path: Path to the URDF file
-            hand_side: "right" or "left"
-        """
-        self.hand_side = hand_side
+    """Realtime camera/video visualization for detection plus retargeted hand."""
+
+    def __init__(
+        self,
+        urdf_path: str,
+        hand_side: str = "right",
+        camera_index: int = 0,
+        camera_width: int = 1280,
+        camera_height: int = 720,
+        camera_fps: float = 30.0,
+        render_width: int = 640,
+        render_height: int = 480,
+        robot_panel_offset_y: int = 30,
+        mirror: bool = True,
+        min_detection_confidence: float = 0.5,
+        min_tracking_confidence: float = 0.5,
+    ):
         self.urdf_path = urdf_path
-        
-        # Initialize MediaPipe
-        self.mp_hands = mp.solutions.hands
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.mp_drawing_styles = mp.solutions.drawing_styles
-        
-        # MediaPipe landmarks
-        self.WRIST = 0
-        self.THUMB_CMC = 1
-        self.THUMB_MCP = 2
-        self.THUMB_IP = 3
-        self.THUMB_TIP = 4
-        self.INDEX_MCP = 5
-        self.INDEX_PIP = 6
-        self.INDEX_DIP = 7
-        self.INDEX_TIP = 8
-        self.MIDDLE_MCP = 9
-        self.MIDDLE_PIP = 10
-        self.MIDDLE_DIP = 11
-        self.MIDDLE_TIP = 12
-        self.RING_MCP = 13
-        self.RING_PIP = 14
-        self.RING_DIP = 15
-        self.RING_TIP = 16
-        self.PINKY_MCP = 17
-        self.PINKY_PIP = 18
-        self.PINKY_DIP = 19
-        self.PINKY_TIP = 20
-        
-        # Revo2 joint names
-        self.revo2_joints = {
-            'thumb_metacarpal': f'{hand_side}_thumb_metacarpal_joint',
-            'thumb_proximal': f'{hand_side}_thumb_proximal_joint',
-            'thumb_distal': f'{hand_side}_thumb_distal_joint',
-            'index_proximal': f'{hand_side}_index_proximal_joint',
-            'index_distal': f'{hand_side}_index_distal_joint',
-            'middle_proximal': f'{hand_side}_middle_proximal_joint',
-            'middle_distal': f'{hand_side}_middle_distal_joint',
-            'ring_proximal': f'{hand_side}_ring_proximal_joint',
-            'ring_distal': f'{hand_side}_ring_distal_joint',
-            'pinky_proximal': f'{hand_side}_pinky_proximal_joint',
-            'pinky_distal': f'{hand_side}_pinky_distal_joint',
-        }
-        
-        # Parse URDF for joint limits
-        self.joint_limits = self._parse_urdf_joint_limits()
-        
-        # Initialize PyBullet
-        self._init_pybullet()
-        
-    def _parse_urdf_joint_limits(self):
-        """Parse URDF to get joint limits."""
-        tree = ET.parse(self.urdf_path)
-        root = tree.getroot()
-        
-        joint_limits = {}
-        for joint in root.findall('.//joint[@type="revolute"]'):
-            joint_name = joint.get('name')
-            limit = joint.find('limit')
-            if limit is not None:
-                lower = float(limit.get('lower', 0))
-                upper = float(limit.get('upper', 0))
-                joint_limits[joint_name] = (lower, upper)
-        
-        return joint_limits
-    
-    def _init_pybullet(self):
-        """Initialize PyBullet simulation."""
-        self.physics_client = p.connect(p.GUI)
-        p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        p.setGravity(0, 0, -9.8)
-        
-        # Configure camera for better view
-        p.resetDebugVisualizerCamera(
-            cameraDistance=0.3,
-            cameraYaw=45,
-            cameraPitch=-30,
-            cameraTargetPosition=[0, 0, 0.1]
+        self.hand_side = hand_side
+        self.camera_index = camera_index
+        self.camera_width = camera_width
+        self.camera_height = camera_height
+        self.camera_fps = camera_fps
+        self.render_width = render_width
+        self.render_height = render_height
+        self.robot_panel_offset_y = robot_panel_offset_y
+        self.mirror = mirror
+        self.min_detection_confidence = min_detection_confidence
+        self.min_tracking_confidence = min_tracking_confidence
+
+        self.retargeting = Revo2HandRetargeting(urdf_path, hand_side)
+        self.renderer = HandPoseRenderer(urdf_path, width=render_width, height=render_height)
+
+    def _open_capture(self, video_path: Optional[str]) -> Tuple[cv2.VideoCapture, str]:
+        """Open a video file or camera source with backend fallback on macOS."""
+        if video_path:
+            capture = cv2.VideoCapture(video_path)
+            if not capture.isOpened():
+                raise RuntimeError(f"Could not open video source: {video_path}")
+            return capture, f"video: {video_path}"
+
+        backend_candidates: List[Tuple[str, Optional[int]]] = []
+        if platform.system() == "Darwin" and hasattr(cv2, "CAP_AVFOUNDATION"):
+            backend_candidates.append(("AVFoundation", cv2.CAP_AVFOUNDATION))
+        if hasattr(cv2, "CAP_ANY"):
+            backend_candidates.append(("CAP_ANY", cv2.CAP_ANY))
+        backend_candidates.append(("default", None))
+
+        for backend_name, backend in backend_candidates:
+            if backend is None:
+                capture = cv2.VideoCapture(self.camera_index)
+            else:
+                capture = cv2.VideoCapture(self.camera_index, backend)
+
+            if capture.isOpened():
+                capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_width)
+                capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_height)
+                capture.set(cv2.CAP_PROP_FPS, self.camera_fps)
+                return capture, f"camera {self.camera_index} ({backend_name})"
+
+            capture.release()
+
+        raise RuntimeError(
+            f"Could not open camera index {self.camera_index}. "
+            "On macOS, check Camera permissions for the terminal/Python process."
         )
-        
-        # Load ground plane
-        self.plane_id = p.loadURDF("plane.urdf")
-        
-        # Load hand
-        urdf_path = Path(self.urdf_path).resolve()
-        start_pos = [0, 0, 0.1]
-        # Rotate hand so palm faces the camera with fingertips pointing up
-        # X-axis: -90° (flip upside down correction)
-        # Z-axis: 90° (palm faces camera)
-        start_orientation = p.getQuaternionFromEuler([-np.pi/2, 0, np.pi/2])
-        
-        self.hand_id = p.loadURDF(
-            str(urdf_path),
-            start_pos,
-            start_orientation,
-            useFixedBase=True
+
+    def _resolve_actual_hand(self, mediapipe_label: str) -> str:
+        """
+        Convert MediaPipe's camera-perspective handedness to the actual hand side.
+        """
+        label = mediapipe_label.lower()
+        if label == "left":
+            return "right"
+        if label == "right":
+            return "left"
+        return label
+
+    def _select_target_hand(self, results) -> Tuple[Optional[object], Optional[object]]:
+        """Pick the highest-confidence detected hand matching the requested side."""
+        if not results.multi_hand_landmarks or not results.multi_handedness:
+            return None, None
+
+        best_score = -1.0
+        best_landmarks = None
+        best_handedness = None
+
+        for landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
+            classification = handedness.classification[0]
+            actual_hand = self._resolve_actual_hand(classification.label)
+            if actual_hand != self.hand_side:
+                continue
+            if classification.score > best_score:
+                best_score = classification.score
+                best_landmarks = landmarks
+                best_handedness = handedness
+
+        return best_landmarks, best_handedness
+
+    def _summarize_detected_hands(self, results) -> str:
+        """Format a short summary of currently detected hands."""
+        if not results.multi_handedness:
+            return "none"
+
+        detected = []
+        for handedness in results.multi_handedness:
+            classification = handedness.classification[0]
+            actual_hand = self._resolve_actual_hand(classification.label).upper()
+            detected.append(f"{actual_hand} {classification.score:.2f}")
+        return ", ".join(detected)
+
+    def _resize_and_pad(self, image: np.ndarray, target_width: int, target_height: int) -> np.ndarray:
+        """Resize while preserving aspect ratio and pad to target size."""
+        src_height, src_width = image.shape[:2]
+        if src_height == 0 or src_width == 0:
+            return np.zeros((target_height, target_width, 3), dtype=np.uint8)
+
+        scale = min(target_width / src_width, target_height / src_height)
+        resized_width = max(1, int(src_width * scale))
+        resized_height = max(1, int(src_height * scale))
+
+        resized = cv2.resize(image, (resized_width, resized_height))
+        canvas = np.full((target_height, target_width, 3), 18, dtype=np.uint8)
+
+        offset_x = (target_width - resized_width) // 2
+        offset_y = (target_height - resized_height) // 2
+        canvas[offset_y:offset_y + resized_height, offset_x:offset_x + resized_width] = resized
+        return canvas
+
+    def _draw_header(self, panel: np.ndarray, title: str, subtitle: str) -> None:
+        """Draw a compact panel header."""
+        cv2.rectangle(panel, (0, 0), (panel.shape[1], 42), (34, 34, 34), -1)
+        cv2.putText(
+            panel,
+            title,
+            (12, 18),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
         )
-        
-        # Map joint names to indices
-        self.joint_indices = {}
-        num_joints = p.getNumJoints(self.hand_id)
-        
-        for i in range(num_joints):
-            joint_info = p.getJointInfo(self.hand_id, i)
-            joint_name = joint_info[1].decode('utf-8')
-            joint_type = joint_info[2]
-            
-            if joint_type == p.JOINT_REVOLUTE:
-                self.joint_indices[joint_name] = i
-        
-        print(f"✓ PyBullet initialized with {len(self.joint_indices)} joints")
-    
-    def _calculate_angle(self, p1, p2, p3):
-        """Calculate angle between three points."""
-        v1 = p1 - p2
-        v2 = p3 - p2
-        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-6)
-        cos_angle = np.clip(cos_angle, -1.0, 1.0)
-        return np.arccos(cos_angle)
-    
-    def _calculate_finger_curl(self, landmarks, mcp_idx, pip_idx, dip_idx, tip_idx):
-        """Calculate finger joint angles."""
-        mcp = np.array([landmarks[mcp_idx].x, landmarks[mcp_idx].y, landmarks[mcp_idx].z])
-        pip = np.array([landmarks[pip_idx].x, landmarks[pip_idx].y, landmarks[pip_idx].z])
-        dip = np.array([landmarks[dip_idx].x, landmarks[dip_idx].y, landmarks[dip_idx].z])
-        tip = np.array([landmarks[tip_idx].x, landmarks[tip_idx].y, landmarks[tip_idx].z])
-        
-        proximal_angle = np.pi - self._calculate_angle(mcp, pip, dip)
-        distal_angle = np.pi - self._calculate_angle(pip, dip, tip)
-        
-        return proximal_angle, distal_angle
-    
-    def _calculate_thumb_angles(self, landmarks):
-        """Calculate thumb joint angles."""
-        wrist = np.array([landmarks[self.WRIST].x, landmarks[self.WRIST].y, landmarks[self.WRIST].z])
-        cmc = np.array([landmarks[self.THUMB_CMC].x, landmarks[self.THUMB_CMC].y, landmarks[self.THUMB_CMC].z])
-        mcp = np.array([landmarks[self.THUMB_MCP].x, landmarks[self.THUMB_MCP].y, landmarks[self.THUMB_MCP].z])
-        ip = np.array([landmarks[self.THUMB_IP].x, landmarks[self.THUMB_IP].y, landmarks[self.THUMB_IP].z])
-        tip = np.array([landmarks[self.THUMB_TIP].x, landmarks[self.THUMB_TIP].y, landmarks[self.THUMB_TIP].z])
-        
-        metacarpal_angle = self._calculate_angle(wrist, cmc, mcp) - np.pi/2
-        metacarpal_angle = np.clip(metacarpal_angle, 0, np.pi/2)
-        
-        proximal_angle = np.pi - self._calculate_angle(cmc, mcp, ip)
-        distal_angle = np.pi - self._calculate_angle(mcp, ip, tip)
-        
-        return metacarpal_angle, proximal_angle, distal_angle
-    
-    def _apply_joint_limits(self, joint_name, angle):
-        """Apply joint limits."""
-        if joint_name in self.joint_limits:
-            lower, upper = self.joint_limits[joint_name]
-            return np.clip(angle, lower, upper)
-        return angle
-    
-    def retarget_hand_pose(self, landmarks):
-        """Convert MediaPipe landmarks to Revo2 joint angles."""
-        joint_angles = {}
-        
-        # Thumb
-        thumb_meta, thumb_prox, thumb_dist = self._calculate_thumb_angles(landmarks)
-        joint_angles[self.revo2_joints['thumb_metacarpal']] = self._apply_joint_limits(
-            self.revo2_joints['thumb_metacarpal'], thumb_meta)
-        joint_angles[self.revo2_joints['thumb_proximal']] = self._apply_joint_limits(
-            self.revo2_joints['thumb_proximal'], thumb_prox)
-        joint_angles[self.revo2_joints['thumb_distal']] = self._apply_joint_limits(
-            self.revo2_joints['thumb_distal'], thumb_dist)
-        
-        # Index
-        index_prox, index_dist = self._calculate_finger_curl(
-            landmarks, self.INDEX_MCP, self.INDEX_PIP, self.INDEX_DIP, self.INDEX_TIP)
-        joint_angles[self.revo2_joints['index_proximal']] = self._apply_joint_limits(
-            self.revo2_joints['index_proximal'], index_prox)
-        joint_angles[self.revo2_joints['index_distal']] = self._apply_joint_limits(
-            self.revo2_joints['index_distal'], index_dist)
-        
-        # Middle
-        middle_prox, middle_dist = self._calculate_finger_curl(
-            landmarks, self.MIDDLE_MCP, self.MIDDLE_PIP, self.MIDDLE_DIP, self.MIDDLE_TIP)
-        joint_angles[self.revo2_joints['middle_proximal']] = self._apply_joint_limits(
-            self.revo2_joints['middle_proximal'], middle_prox)
-        joint_angles[self.revo2_joints['middle_distal']] = self._apply_joint_limits(
-            self.revo2_joints['middle_distal'], middle_dist)
-        
-        # Ring
-        ring_prox, ring_dist = self._calculate_finger_curl(
-            landmarks, self.RING_MCP, self.RING_PIP, self.RING_DIP, self.RING_TIP)
-        joint_angles[self.revo2_joints['ring_proximal']] = self._apply_joint_limits(
-            self.revo2_joints['ring_proximal'], ring_prox)
-        joint_angles[self.revo2_joints['ring_distal']] = self._apply_joint_limits(
-            self.revo2_joints['ring_distal'], ring_dist)
-        
-        # Pinky
-        pinky_prox, pinky_dist = self._calculate_finger_curl(
-            landmarks, self.PINKY_MCP, self.PINKY_PIP, self.PINKY_DIP, self.PINKY_TIP)
-        joint_angles[self.revo2_joints['pinky_proximal']] = self._apply_joint_limits(
-            self.revo2_joints['pinky_proximal'], pinky_prox)
-        joint_angles[self.revo2_joints['pinky_distal']] = self._apply_joint_limits(
-            self.revo2_joints['pinky_distal'], pinky_dist)
-        
-        return joint_angles
-    
-    def set_joint_angles(self, joint_angles):
-        """Set joint angles in PyBullet."""
-        for joint_name, angle in joint_angles.items():
-            if joint_name in self.joint_indices:
-                joint_idx = self.joint_indices[joint_name]
-                p.setJointMotorControl2(
-                    bodyUniqueId=self.hand_id,
-                    jointIndex=joint_idx,
-                    controlMode=p.POSITION_CONTROL,
-                    targetPosition=angle,
-                    force=100
-                )
-    
-    def process_video(self, video_path: str):
+        cv2.putText(
+            panel,
+            subtitle,
+            (12, 36),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.42,
+            (190, 190, 190),
+            1,
+            cv2.LINE_AA,
+        )
+
+    def _draw_lines(
+        self,
+        panel: np.ndarray,
+        lines: List[str],
+        start_y: int = 60,
+        color: Tuple[int, int, int] = (0, 255, 0),
+    ) -> None:
+        """Draw a list of text lines with consistent spacing."""
+        y = start_y
+        for line in lines:
+            cv2.putText(
+                panel,
+                line,
+                (12, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.48,
+                color,
+                1,
+                cv2.LINE_AA,
+            )
+            y += 20
+
+    def _render_robot_panel(self, joint_angles: Optional[Dict[str, float]]) -> np.ndarray:
+        """Render the retargeted BrainCo hand and annotate controllable joints."""
+        if joint_angles is not None:
+            self.renderer.set_joint_angles(joint_angles, in_degrees=False)
+
+        render_rgb = self.renderer.render()
+        panel = cv2.cvtColor(render_rgb, cv2.COLOR_RGB2BGR)
+        if self.robot_panel_offset_y:
+            shift_matrix = np.float32([[1, 0, 0], [0, 1, self.robot_panel_offset_y]])
+            panel = cv2.warpAffine(
+                panel,
+                shift_matrix,
+                (panel.shape[1], panel.shape[0]),
+                borderMode=cv2.BORDER_REPLICATE,
+            )
+        self._draw_header(
+            panel,
+            "Retargeted BrainCo Hand",
+            f"{self.hand_side.upper()} hand | URDF: {Path(self.urdf_path).name}",
+        )
+
+        if joint_angles is None:
+            self._draw_lines(panel, ["No matching hand detected"], start_y=72, color=(0, 165, 255))
+            return panel
+
+        lines = []
+        for key, joint_name in self.retargeting.controllable_joints.items():
+            angle_deg = np.degrees(joint_angles[joint_name])
+            short_name = key.replace("_proximal", "").replace("_metacarpal", "_meta")
+            lines.append(f"{short_name}: {angle_deg:6.1f} deg")
+
+        self._draw_lines(panel, lines, start_y=72, color=(0, 255, 0))
+        return panel
+
+    def _render_camera_panel(
+        self,
+        frame: np.ndarray,
+        source_label: str,
+        display_fps: float,
+        frame_idx: int,
+        target_found: bool,
+        detected_summary: str,
+        handedness,
+        paused: bool,
+    ) -> np.ndarray:
+        """Prepare the camera/MediaPipe panel."""
+        display_frame = cv2.flip(frame, 1) if self.mirror else frame
+        panel = self._resize_and_pad(display_frame, self.render_width, self.render_height)
+
+        status = "target matched" if target_found else "waiting for target hand"
+        self._draw_header(panel, "Detected Hand Model", f"{source_label} | {status}")
+
+        lines = [
+            f"frame: {frame_idx}",
+            f"display fps: {display_fps:5.1f}",
+            f"target hand: {self.hand_side.upper()}",
+            f"detected hands: {detected_summary}",
+            f"mirror: {'on' if self.mirror else 'off'}",
+            "controls: q quit | space pause | m mirror",
+        ]
+
+        if handedness is not None:
+            classification = handedness.classification[0]
+            actual_hand = self._resolve_actual_hand(classification.label).upper()
+            lines.insert(3, f"matched hand: {actual_hand} {classification.score:.2f}")
+
+        if paused:
+            lines.insert(0, "paused")
+
+        color = (0, 255, 0) if target_found else (0, 165, 255)
+        self._draw_lines(panel, lines, start_y=72, color=color)
+        return panel
+
+    def run(
+        self,
+        video_path: Optional[str] = None,
+        trajectory_out: Optional[str] = None,
+        max_frames: Optional[int] = None,
+        headless: bool = False,
+    ) -> Optional[Dict]:
         """
-        Process video with real-time 3D visualization.
-        
-        Args:
-            video_path: Path to input video
+        Run realtime visualization from a camera or video source.
+
+        Returns the collected trajectory if `trajectory_out` is provided, otherwise `None`.
         """
-        cap = cv2.VideoCapture(video_path)
-        
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        print(f"\n{'='*60}")
-        print(f"Real-time Hand Retargeting with 3D Visualization")
-        print(f"{'='*60}")
-        print(f"Video: {video_path}")
-        print(f"FPS: {fps}, Total frames: {total_frames}")
-        print(f"\nControls:")
-        print(f"  - Press 'q' to quit")
-        print(f"  - Press SPACE to pause/resume")
-        print(f"{'='*60}\n")
-        
-        with self.mp_hands.Hands(
+        capture, source_label = self._open_capture(video_path)
+
+        source_fps = capture.get(cv2.CAP_PROP_FPS)
+        if not source_fps or np.isnan(source_fps) or source_fps <= 1e-6:
+            source_fps = self.camera_fps
+
+        trajectory = None
+        if trajectory_out:
+            trajectory = {
+                "fps": source_fps,
+                "angle_unit": "degrees",
+                "source": "video" if video_path else "camera",
+                "hand": self.hand_side,
+                "frames": [],
+            }
+
+        print(f"\n{'=' * 72}")
+        print("Realtime Hand Retargeting")
+        print(f"{'=' * 72}")
+        print(f"Source: {source_label}")
+        print(f"Target hand: {self.hand_side}")
+        print(f"Render size: {self.render_width}x{self.render_height}")
+        print("Controls: q quit | SPACE pause/resume | m mirror")
+        if trajectory_out:
+            print(f"Trajectory output: {trajectory_out}")
+        if headless:
+            print("Headless mode: enabled")
+        print(f"{'=' * 72}\n")
+
+        last_combined = None
+        frame_idx = 0
+        paused = False
+        last_frame_time = time.perf_counter()
+        session_start_time = time.perf_counter()
+
+        with self.retargeting.mp_hands.Hands(
             static_image_mode=False,
-            max_num_hands=1,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
+            max_num_hands=2,
+            min_detection_confidence=self.min_detection_confidence,
+            min_tracking_confidence=self.min_tracking_confidence,
         ) as hands:
-            
-            frame_idx = 0
-            paused = False
-            
-            while cap.isOpened():
-                if not paused:
-                    success, frame = cap.read()
-                    if not success:
-                        break
-                    
-                    # Process frame
-                    image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    image.flags.writeable = False
-                    results = hands.process(image)
-                    image.flags.writeable = True
-                    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-                    
-                    # Draw landmarks
-                    if results.multi_hand_landmarks:
-                        for hand_landmarks in results.multi_hand_landmarks:
-                            self.mp_drawing.draw_landmarks(
-                                image,
-                                hand_landmarks,
-                                self.mp_hands.HAND_CONNECTIONS,
-                                self.mp_drawing_styles.get_default_hand_landmarks_style(),
-                                self.mp_drawing_styles.get_default_hand_connections_style()
+            try:
+                while capture.isOpened():
+                    if not paused:
+                        success, frame = capture.read()
+                        if not success:
+                            break
+
+                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        rgb_frame.flags.writeable = False
+                        results = hands.process(rgb_frame)
+                        rgb_frame.flags.writeable = True
+                        annotated_frame = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)
+
+                        if results.multi_hand_landmarks:
+                            for hand_landmarks in results.multi_hand_landmarks:
+                                self.retargeting.mp_drawing.draw_landmarks(
+                                    annotated_frame,
+                                    hand_landmarks,
+                                    self.retargeting.mp_hands.HAND_CONNECTIONS,
+                                    self.retargeting.mp_drawing_styles.get_default_hand_landmarks_style(),
+                                    self.retargeting.mp_drawing_styles.get_default_hand_connections_style(),
+                                )
+
+                        target_landmarks, target_handedness = self._select_target_hand(results)
+                        joint_angles = None
+
+                        if target_landmarks is not None:
+                            joint_angles = self.retargeting.retarget_hand_pose(target_landmarks.landmark)
+
+                        detected_summary = self._summarize_detected_hands(results)
+                        now = time.perf_counter()
+                        display_fps = 1.0 / max(now - last_frame_time, 1e-6)
+                        last_frame_time = now
+
+                        camera_panel = self._render_camera_panel(
+                            frame=annotated_frame,
+                            source_label=source_label,
+                            display_fps=display_fps,
+                            frame_idx=frame_idx,
+                            target_found=joint_angles is not None,
+                            detected_summary=detected_summary,
+                            handedness=target_handedness,
+                            paused=paused,
+                        )
+                        robot_panel = self._render_robot_panel(joint_angles)
+                        last_combined = np.hstack((camera_panel, robot_panel))
+
+                        if trajectory is not None:
+                            joint_angles_deg = None
+                            if joint_angles is not None:
+                                joint_angles_deg = {k: float(np.degrees(v)) for k, v in joint_angles.items()}
+                            if video_path:
+                                timestamp = frame_idx / source_fps
+                            else:
+                                timestamp = time.perf_counter() - session_start_time
+                            trajectory["frames"].append(
+                                {
+                                    "frame": frame_idx,
+                                    "timestamp": timestamp,
+                                    "joint_angles": joint_angles_deg,
+                                }
                             )
-                            
-                            # Retarget and update 3D hand
-                            joint_angles = self.retarget_hand_pose(hand_landmarks.landmark)
-                            self.set_joint_angles(joint_angles)
-                    
-                    # Add info text
-                    cv2.putText(image, f"Frame: {frame_idx}/{total_frames}", 
-                              (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    cv2.putText(image, "Press SPACE to pause, 'q' to quit", 
-                              (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-                    
-                    # Display video
-                    cv2.imshow('Hand Tracking', image)
-                    frame_idx += 1
-                
-                # Handle keyboard input
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
-                elif key == ord(' '):
-                    paused = not paused
-                    print(f"{'Paused' if paused else 'Resumed'}")
-                
-                # Step simulation
-                p.stepSimulation()
-                time.sleep(1.0 / fps)
-        
-        cap.release()
-        cv2.destroyAllWindows()
-        print(f"\n✓ Processing complete! Processed {frame_idx} frames.")
-    
-    def close(self):
-        """Close the visualizer."""
-        p.disconnect()
+
+                        frame_idx += 1
+
+                    if not headless and last_combined is not None:
+                        cv2.imshow("Realtime Hand Retargeting", last_combined)
+                        key = cv2.waitKey(1) & 0xFF
+                    else:
+                        key = -1
+                        time.sleep(0.001)
+
+                    if key == ord("q"):
+                        break
+                    if key == ord(" "):
+                        paused = not paused
+                    if key == ord("m"):
+                        self.mirror = not self.mirror
+
+                    if max_frames is not None and frame_idx >= max_frames:
+                        break
+
+            finally:
+                capture.release()
+                if not headless:
+                    cv2.destroyAllWindows()
+
+        print(f"Processed {frame_idx} frame(s).")
+
+        if trajectory is not None:
+            trajectory_path = Path(trajectory_out)
+            trajectory_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with trajectory_path.open("w") as handle:
+                json.dump(trajectory, handle, indent=2)
+
+            controllable_trajectory = self.retargeting._extract_controllable_trajectory(trajectory)
+            controllable_path = trajectory_path.with_name(
+                f"{trajectory_path.stem}_6dof{trajectory_path.suffix}"
+            )
+            with controllable_path.open("w") as handle:
+                json.dump(controllable_trajectory, handle, indent=2)
+
+            print(f"Saved trajectory: {trajectory_path}")
+            print(f"Saved 6-DOF trajectory: {controllable_path}")
+
+        return trajectory
+
+    def close(self) -> None:
+        """Release the PyBullet renderer."""
+        self.renderer.cleanup()
 
 
-def main():
-    """Main function."""
+def build_parser() -> argparse.ArgumentParser:
+    """Create the CLI parser."""
     parser = argparse.ArgumentParser(
-        description='Real-time hand retargeting with 3D visualization'
+        description="Realtime webcam/video hand retargeting with BrainCo visualization",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Realtime webcam on macOS
+  python realtime_visualize.py \
+      --camera-index 0 \
+      --urdf brainco_hand/brainco_right.urdf \
+      --hand right
+
+  # Run against a saved video
+  python realtime_visualize.py \
+      --video human_hand_video.mp4 \
+      --urdf brainco_hand/brainco_right.urdf \
+      --hand right
+
+  # Headless smoke test
+  python realtime_visualize.py \
+      --video human_hand_video.mp4 \
+      --urdf brainco_hand/brainco_right.urdf \
+      --hand right \
+      --headless \
+      --max-frames 30 \
+      --trajectory-out /tmp/realtime_test.json
+        """,
     )
-    parser.add_argument('--video', type=str, required=True,
-                       help='Path to input video file')
-    parser.add_argument('--urdf', type=str, required=True,
-                       help='Path to Revo2 URDF file')
-    parser.add_argument('--hand', type=str, default='right', 
-                       choices=['right', 'left'],
-                       help='Hand side (right or left)')
-    
+
+    parser.add_argument("--video", type=str, default=None, help="Optional input video file.")
+    parser.add_argument(
+        "--camera-index",
+        type=int,
+        default=0,
+        help="Camera index for live capture (default: 0).",
+    )
+    parser.add_argument("--urdf", type=str, required=True, help="Path to the BrainCo/Revo2 URDF.")
+    parser.add_argument(
+        "--hand",
+        type=str,
+        default="right",
+        choices=["right", "left"],
+        help="Actual hand side to track.",
+    )
+    parser.add_argument(
+        "--camera-width",
+        type=int,
+        default=1280,
+        help="Requested camera width for webcam mode.",
+    )
+    parser.add_argument(
+        "--camera-height",
+        type=int,
+        default=720,
+        help="Requested camera height for webcam mode.",
+    )
+    parser.add_argument(
+        "--camera-fps",
+        type=float,
+        default=30.0,
+        help="Fallback FPS when the source does not report one.",
+    )
+    parser.add_argument(
+        "--render-width",
+        type=int,
+        default=640,
+        help="Width of each output panel.",
+    )
+    parser.add_argument(
+        "--render-height",
+        type=int,
+        default=480,
+        help="Height of each output panel.",
+    )
+    parser.add_argument(
+        "--robot-panel-offset-y",
+        type=int,
+        default=30,
+        help="Shift the rendered robot-hand panel downward by this many pixels.",
+    )
+    parser.add_argument(
+        "--no-mirror",
+        action="store_true",
+        help="Disable mirrored preview for the camera panel.",
+    )
+    parser.add_argument(
+        "--min-detection-confidence",
+        type=float,
+        default=0.5,
+        help="MediaPipe detection confidence threshold.",
+    )
+    parser.add_argument(
+        "--min-tracking-confidence",
+        type=float,
+        default=0.5,
+        help="MediaPipe tracking confidence threshold.",
+    )
+    parser.add_argument(
+        "--trajectory-out",
+        type=str,
+        default=None,
+        help="Optional path to save the recorded trajectory JSON.",
+    )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=None,
+        help="Optional frame limit, useful for tests.",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Process frames without opening an OpenCV window.",
+    )
+    return parser
+
+
+def main() -> None:
+    """CLI entrypoint."""
+    parser = build_parser()
     args = parser.parse_args()
-    
-    # Create visualizer
-    visualizer = RealtimeRetargetingVisualizer(args.urdf, args.hand)
-    
+
+    visualizer = RealtimeRetargetingVisualizer(
+        urdf_path=args.urdf,
+        hand_side=args.hand,
+        camera_index=args.camera_index,
+        camera_width=args.camera_width,
+        camera_height=args.camera_height,
+        camera_fps=args.camera_fps,
+        render_width=args.render_width,
+        render_height=args.render_height,
+        robot_panel_offset_y=args.robot_panel_offset_y,
+        mirror=not args.no_mirror,
+        min_detection_confidence=args.min_detection_confidence,
+        min_tracking_confidence=args.min_tracking_confidence,
+    )
+
     try:
-        # Process video
-        visualizer.process_video(args.video)
+        visualizer.run(
+            video_path=args.video,
+            trajectory_out=args.trajectory_out,
+            max_frames=args.max_frames,
+            headless=args.headless,
+        )
     finally:
         visualizer.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

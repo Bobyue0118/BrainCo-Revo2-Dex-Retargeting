@@ -6,7 +6,7 @@ This guide covers the 3D visualization tools for BrainCo Revo2 hand retargeting.
 
 1. **PyBullet Replay** - Fast, interactive trajectory replay
 2. **SAPIEN Visualization** ⭐ NEW - Advanced physics & realistic rendering
-3. **Real-time Visualization** - See both video and 3D hand side-by-side
+3. **Real-time Visualization** - See webcam/video, detected hand landmarks, and 3D hand side-by-side
 
 ## 🚀 Quick Start
 
@@ -77,19 +77,31 @@ pip install sapien
 - 🌍 Better shadows and ground plane
 - 📊 Higher visual quality
 
-#### C. Real-time Video + 3D
+#### C. Real-time Camera + 3D
+
+```bash
+python realtime_visualize.py \
+    --camera-index 0 \
+    --urdf "brainco_hand/brainco_right.urdf" \
+    --hand right
+```
+
+#### D. Real-time Video + 3D
 
 ```bash
 python realtime_visualize.py \
     --video human_hand_video.mp4 \
-    --urdf "Revo2_URDF Description_ROS2/revo2_description/urdf/revo2_right_hand.urdf" \
+    --urdf "brainco_hand/brainco_right.urdf" \
     --hand right
 ```
 
 **Parameters:**
+- `--camera-index`: Camera index for live webcam mode (default `0`)
 - `--video`: Path to input video
 - `--urdf`: Path to URDF file
 - `--hand`: Hand side (right or left)
+- `--trajectory-out`: Optional path to save the captured trajectory
+- `--headless`: Run without an OpenCV window for smoke tests/batch checks
 
 ## 🎮 Controls
 
@@ -135,10 +147,10 @@ python visualize_revo2_hand.py \
 ### 2. Real-time Visualization (`realtime_visualize.py`)
 
 **What it does:**
-- Processes video frame-by-frame
+- Processes webcam or video frames in realtime
 - Detects hand with MediaPipe
-- Updates 3D hand in real-time
-- Shows both video and 3D side-by-side
+- Draws the detected hand landmarks
+- Retargets and renders the BrainCo hand in the same window
 
 **Use cases:**
 - Live demonstration
@@ -148,10 +160,16 @@ python visualize_revo2_hand.py \
 
 **Example:**
 ```bash
-# Process with left hand
+# Realtime webcam with left hand
+python realtime_visualize.py \
+    --camera-index 0 \
+    --urdf "brainco_hand/brainco_left.urdf" \
+    --hand left
+
+# Process a saved video instead
 python realtime_visualize.py \
     --video my_left_hand.mp4 \
-    --urdf "Revo2_URDF Description_ROS2/revo2_description/urdf/revo2_left_hand.urdf" \
+    --urdf "brainco_hand/brainco_left.urdf" \
     --hand left
 ```
 

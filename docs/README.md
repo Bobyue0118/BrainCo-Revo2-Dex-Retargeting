@@ -25,7 +25,7 @@ This system enables **dexterous hand motion retargeting** from human hand videos
 - 🤖 **Smart Retargeting** - Map human joints to 11-DOF Revo2 hand
 - 📊 **Data Analysis** - Visualize trajectories and statistics
 - 🎮 **3D Visualization** - PyBullet & SAPIEN simulators
-- ⚡ **Real-time Mode** - See video and 3D hand together
+- ⚡ **Real-time Mode** - See webcam/video, detected hand landmarks, and 3D hand together
 - 🎨 **Realistic Rendering** - SAPIEN advanced physics & graphics
 - 📈 **Export Options** - JSON, CSV, and visualization outputs
 
@@ -59,7 +59,7 @@ This will:
 
 Choose your mode:
 - **Option 1**: Replay trajectory in 3D
-- **Option 2**: Real-time video + 3D side-by-side
+- **Option 2**: Real-time camera/video + 3D side-by-side
 
 ---
 
@@ -101,7 +101,7 @@ The automated scripts (`run_retargeting.sh`, `run_visualization.sh`) will prompt
 | `hand_retargeting.py` | Main retargeting | Process video → joint angles |
 | `visualize_revo2_hand.py` | PyBullet 3D | Replay trajectory in PyBullet |
 | `visualize_sapien.py` | SAPIEN 3D ⭐ | Advanced physics & rendering |
-| `realtime_visualize.py` | Real-time mode | Video + 3D simultaneously |
+| `realtime_visualize.py` | Real-time mode | Camera/video + detected hand + 3D |
 | `visualize_trajectory.py` | 2D plots | Analyze joint angles over time |
 | `examples.py` | Example scripts | 5 usage examples |
 
@@ -202,22 +202,22 @@ pip install sapien
 
 **⚠️ Platform Note:** SAPIEN may not be available on macOS ARM (M1/M2). If installation fails, use PyBullet (Mode 1) instead.
 
-### Mode 3: Real-time (Video + 3D)
+### Mode 3: Real-time (Camera/Video + 3D)
 
 See both at once:
 
 ```bash
 python realtime_visualize.py \
-    --video human_hand_video.mp4 \
-    --urdf "Revo2_URDF Description_ROS2/revo2_description/urdf/revo2_right_hand.urdf" \
+    --camera-index 0 \
+    --urdf "brainco_hand/brainco_right.urdf" \
     --hand right
 ```
 
 **Features:**
-- Two synchronized windows
-- Real-time processing
-- Side-by-side comparison
-- Live updates
+- Single combined realtime window
+- macOS webcam support via OpenCV/AVFoundation fallback
+- Video-file mode for replay/debugging
+- Optional trajectory export for later analysis
 
 ---
 
@@ -423,7 +423,7 @@ See `VISUALIZATION_GUIDE.md` for more troubleshooting.
 
 ## 🔮 Future Enhancements
 
-- [ ] Live webcam input
+- [x] Live webcam input
 - [ ] Bilateral hand support
 - [ ] ROS2 real-time integration
 - [ ] Force/torque visualization
