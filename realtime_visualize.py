@@ -55,6 +55,15 @@ class RealtimeRetargetingVisualizer:
         self.retargeting = Revo2HandRetargeting(urdf_path, hand_side)
         self.renderer = HandPoseRenderer(urdf_path, width=render_width, height=render_height)
 
+    def _camera_stream_ready(self, capture: cv2.VideoCapture, attempts: int = 20, delay_s: float = 0.1) -> bool:
+        """Warm up a live camera and verify that it can actually deliver frames."""
+        for _ in range(attempts):
+            success, frame = capture.read()
+            if success and frame is not None and frame.size > 0:
+                return True
+            time.sleep(delay_s)
+        return False
+
     def _open_capture(self, video_path: Optional[str]) -> Tuple[cv2.VideoCapture, str]:
         """Open a video file or camera source with backend fallback on macOS."""
         if video_path:
@@ -70,23 +79,32 @@ class RealtimeRetargetingVisualizer:
             backend_candidates.append(("CAP_ANY", cv2.CAP_ANY))
         backend_candidates.append(("default", None))
 
+        backend_failures = []
         for backend_name, backend in backend_candidates:
             if backend is None:
                 capture = cv2.VideoCapture(self.camera_index)
             else:
                 capture = cv2.VideoCapture(self.camera_index, backend)
 
-            if capture.isOpened():
-                capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_width)
-                capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_height)
-                capture.set(cv2.CAP_PROP_FPS, self.camera_fps)
+            if not capture.isOpened():
+                backend_failures.append(f"{backend_name}: open failed")
+                capture.release()
+                continue
+
+            capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_width)
+            capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_height)
+            capture.set(cv2.CAP_PROP_FPS, self.camera_fps)
+
+            if self._camera_stream_ready(capture):
                 return capture, f"camera {self.camera_index} ({backend_name})"
 
+            backend_failures.append(f"{backend_name}: opened but produced no frames")
             capture.release()
 
         raise RuntimeError(
             f"Could not open camera index {self.camera_index}. "
-            "On macOS, check Camera permissions for the terminal/Python process."
+            "On macOS, check Camera permissions for the terminal/Python process. "
+            f"Tried backends: {', '.join(backend_failures)}"
         )
 
     def _resolve_actual_hand(self, mediapipe_label: str) -> str:
@@ -316,6 +334,7 @@ class RealtimeRetargetingVisualizer:
         paused = False
         last_frame_time = time.perf_counter()
         session_start_time = time.perf_counter()
+        consecutive_read_failures = 0
 
         with self.retargeting.mp_hands.Hands(
             static_image_mode=False,
@@ -328,7 +347,15 @@ class RealtimeRetargetingVisualizer:
                     if not paused:
                         success, frame = capture.read()
                         if not success:
-                            break
+                            consecutive_read_failures += 1
+                            if not video_path and consecutive_read_failures < 10:
+                                time.sleep(0.05)
+                                continue
+                            raise RuntimeError(
+                                "Camera/video source stopped delivering frames. "
+                                "Try another --camera-index on macOS if this is a live camera."
+                            )
+                        consecutive_read_failures = 0
 
                         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         rgb_frame.flags.writeable = False
