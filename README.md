@@ -12,8 +12,17 @@
 - 🤖 **Smart Retargeting** - Map human joints to 11-DOF robotic hand
 - 🎮 **3D Visualization** - PyBullet (fast & interactive) & SAPIEN (realistic) ⭐
 - ⚡ **Real-time Mode** - See webcam/video, detected hand landmarks, and 3D BrainCo hand together
+- 🙌 **Both-Hand Realtime Mode** - Detect and retarget left and right hands together in a 3-panel webcam view
 - 📊 **Data Analysis** - Visualize trajectories and statistics
 - 🤖 **6-DOF Control** - Export controllable joint commands for robot
+
+---
+
+## 🖼️ Both-Hand Realtime Demo
+
+![Both-hand realtime webcam visualization](demo.png)
+
+Realtime webcam mode now supports `--hand both`, with the scene on the left, left-hand retargeting in the middle, and right-hand retargeting on the right.
 
 ---
 
@@ -62,6 +71,13 @@ python realtime_visualize.py \
     --camera-index 0 \
     --urdf brainco_hand/brainco_right.urdf \
     --hand right
+
+# Realtime webcam visualization for both hands
+python realtime_visualize.py \
+    --camera-index 0 \
+    --hand both \
+    --left-urdf brainco_hand/brainco_left.urdf \
+    --right-urdf brainco_hand/brainco_right.urdf
 ```
 
 ---
@@ -130,7 +146,7 @@ BrainCo-Revo2-Dex-Retargeting/
 | Script | Mode | macOS |
 |---|---|---|
 | `visualize_revo2_hand.py` | PyBullet 3D replay | ✅ |
-| `realtime_visualize.py` | Video + 3D side-by-side | ✅ |
+| `realtime_visualize.py` | Video + 3D single-hand or both-hand view | ✅ |
 | `visualize_trajectory_6dof.py` | 6-DOF curve plots | ✅ |
 | `visualize_trajectory.py` | 11-DOF curve plots | ✅ |
 | `visualize_sapien.py` | SAPIEN advanced render | ❌ |
@@ -146,11 +162,21 @@ python visualize_revo2_hand.py \
 
 ### Real-time Video + 3D
 ```bash
+# Single-hand mode
 python realtime_visualize.py \
     --video human_hand_video.mp4 \
     --urdf brainco_hand/brainco_right.urdf \
     --hand right
+
+# Both-hand mode
+python realtime_visualize.py \
+    --camera-index 0 \
+    --hand both \
+    --left-urdf brainco_hand/brainco_left.urdf \
+    --right-urdf brainco_hand/brainco_right.urdf
 ```
+
+In `--hand both` mode, the window shows the camera scene on the left, the left-hand BrainCo retargeting in the middle, and the right-hand BrainCo retargeting on the right.
 
 ### Trajectory Curve Plot
 ```bash
@@ -219,3 +245,4 @@ for frame in trajectory['frames']:
 - 🖼️ **Image Pipeline** - Process image sequences, not just video
 - 🎨 **SAPIEN Integration** - Photo-realistic rendering (Linux/Windows)
 - 🔧 **macOS Apple Silicon** - PyBullet via conda-forge confirmed working
+- 🙌 **Both-Hand Realtime Visualization** - Simultaneous left/right webcam retargeting with separate robot panels
