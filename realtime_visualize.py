@@ -2,9 +2,9 @@
 """
 Realtime hand retargeting visualizer.
 
-Opens either a webcam or a video file, detects the requested human hand with
-MediaPipe, retargets it to the BrainCo/Revo2 URDF, and shows both views in one
-window in realtime.
+Opens either a webcam or a video file, detects the requested human hand(s) with
+MediaPipe, retargets them to the BrainCo/Revo2 URDF(s), and shows both views in
+one window in realtime.
 """
 
 import argparse
@@ -22,24 +22,25 @@ from render_hand_poses import HandPoseRenderer
 
 
 class RealtimeRetargetingVisualizer:
-    """Realtime camera/video visualization for detection plus retargeted hand."""
+    """Realtime camera/video visualization for detection plus retargeted hand(s)."""
 
     def __init__(
         self,
-        urdf_path: str,
+        urdf_path: Optional[str] = None,
         hand_side: str = "right",
+        left_urdf_path: Optional[str] = None,
+        right_urdf_path: Optional[str] = None,
         camera_index: int = 0,
         camera_width: int = 1280,
         camera_height: int = 720,
         camera_fps: float = 30.0,
         render_width: int = 640,
-        render_height: int = 480,
+        render_height: int = 720,
         robot_panel_offset_y: int = 30,
         mirror: bool = True,
         min_detection_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
     ):
-        self.urdf_path = urdf_path
         self.hand_side = hand_side
         self.camera_index = camera_index
         self.camera_width = camera_width
@@ -51,9 +52,84 @@ class RealtimeRetargetingVisualizer:
         self.mirror = mirror
         self.min_detection_confidence = min_detection_confidence
         self.min_tracking_confidence = min_tracking_confidence
+        self.window_name = "Realtime Hand Retargeting"
 
-        self.retargeting = Revo2HandRetargeting(urdf_path, hand_side)
-        self.renderer = HandPoseRenderer(urdf_path, width=render_width, height=render_height)
+        self.active_hands = ["left", "right"] if hand_side == "both" else [hand_side]
+        self.urdf_paths = self._resolve_urdf_paths(urdf_path, left_urdf_path, right_urdf_path)
+
+        self.retargeters: Dict[str, Revo2HandRetargeting] = {}
+        self.renderers: Dict[str, HandPoseRenderer] = {}
+        for side in self.active_hands:
+            self.retargeters[side] = Revo2HandRetargeting(self.urdf_paths[side], side)
+            self.renderers[side] = HandPoseRenderer(
+                self.urdf_paths[side],
+                width=render_width,
+                height=render_height,
+            )
+
+        # Preserve the single-hand attributes used elsewhere in the file.
+        self.urdf_path = self.urdf_paths[self.active_hands[0]]
+        self.retargeting = self.retargeters[self.active_hands[0]]
+        self.renderer = self.renderers[self.active_hands[0]]
+
+    def _resolve_urdf_paths(
+        self,
+        urdf_path: Optional[str],
+        left_urdf_path: Optional[str],
+        right_urdf_path: Optional[str],
+    ) -> Dict[str, str]:
+        """Resolve the URDF path(s) required for the selected hand mode."""
+        if self.hand_side in {"left", "right"}:
+            if self.hand_side == "left":
+                resolved = urdf_path or left_urdf_path
+            else:
+                resolved = urdf_path or right_urdf_path
+            if not resolved:
+                raise ValueError("Single-hand mode requires --urdf.")
+            return {self.hand_side: str(Path(resolved))}
+
+        resolved_left = Path(left_urdf_path).expanduser() if left_urdf_path else None
+        resolved_right = Path(right_urdf_path).expanduser() if right_urdf_path else None
+
+        if urdf_path:
+            base_path = Path(urdf_path).expanduser()
+            base_name = base_path.name.lower()
+            if "left" in base_name and resolved_left is None:
+                resolved_left = base_path
+                candidate = base_path.with_name(base_path.name.replace("left", "right"))
+                if candidate.exists():
+                    resolved_right = resolved_right or candidate
+            elif "right" in base_name and resolved_right is None:
+                resolved_right = base_path
+                candidate = base_path.with_name(base_path.name.replace("right", "left"))
+                if candidate.exists():
+                    resolved_left = resolved_left or candidate
+
+        if resolved_left is None or resolved_right is None:
+            default_dir = Path(__file__).resolve().parent / "brainco_hand"
+            default_left = default_dir / "brainco_left.urdf"
+            default_right = default_dir / "brainco_right.urdf"
+            if resolved_left is None and default_left.exists():
+                resolved_left = default_left
+            if resolved_right is None and default_right.exists():
+                resolved_right = default_right
+
+        missing = []
+        if resolved_left is None or not resolved_left.exists():
+            missing.append("left")
+        if resolved_right is None or not resolved_right.exists():
+            missing.append("right")
+        if missing:
+            raise ValueError(
+                "Both-hand mode requires valid left and right URDFs. "
+                "Pass --left-urdf and --right-urdf, or provide --urdf that points "
+                f"to one side with the sibling file present. Missing: {', '.join(missing)}"
+            )
+
+        return {
+            "left": str(resolved_left),
+            "right": str(resolved_right),
+        }
 
     def _camera_stream_ready(self, capture: cv2.VideoCapture, attempts: int = 20, delay_s: float = 0.1) -> bool:
         """Warm up a live camera and verify that it can actually deliver frames."""
@@ -108,9 +184,7 @@ class RealtimeRetargetingVisualizer:
         )
 
     def _resolve_actual_hand(self, mediapipe_label: str) -> str:
-        """
-        Convert MediaPipe's camera-perspective handedness to the actual hand side.
-        """
+        """Convert MediaPipe's camera-perspective handedness to the actual hand side."""
         label = mediapipe_label.lower()
         if label == "left":
             return "right"
@@ -118,26 +192,24 @@ class RealtimeRetargetingVisualizer:
             return "left"
         return label
 
-    def _select_target_hand(self, results) -> Tuple[Optional[object], Optional[object]]:
-        """Pick the highest-confidence detected hand matching the requested side."""
-        if not results.multi_hand_landmarks or not results.multi_handedness:
-            return None, None
+    def _select_target_hands(self, results) -> Dict[str, Tuple[Optional[object], Optional[object]]]:
+        """Pick the highest-confidence detection for each requested actual hand."""
+        selected = {side: (None, None) for side in self.active_hands}
+        best_scores = {side: -1.0 for side in self.active_hands}
 
-        best_score = -1.0
-        best_landmarks = None
-        best_handedness = None
+        if not results.multi_hand_landmarks or not results.multi_handedness:
+            return selected
 
         for landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
             classification = handedness.classification[0]
             actual_hand = self._resolve_actual_hand(classification.label)
-            if actual_hand != self.hand_side:
+            if actual_hand not in selected:
                 continue
-            if classification.score > best_score:
-                best_score = classification.score
-                best_landmarks = landmarks
-                best_handedness = handedness
+            if classification.score > best_scores[actual_hand]:
+                best_scores[actual_hand] = classification.score
+                selected[actual_hand] = (landmarks, handedness)
 
-        return best_landmarks, best_handedness
+        return selected
 
     def _summarize_detected_hands(self, results) -> str:
         """Format a short summary of currently detected hands."""
@@ -215,12 +287,15 @@ class RealtimeRetargetingVisualizer:
             )
             y += 20
 
-    def _render_robot_panel(self, joint_angles: Optional[Dict[str, float]]) -> np.ndarray:
-        """Render the retargeted BrainCo hand and annotate controllable joints."""
-        if joint_angles is not None:
-            self.renderer.set_joint_angles(joint_angles, in_degrees=False)
+    def _render_robot_panel(self, side: str, joint_angles: Optional[Dict[str, float]]) -> np.ndarray:
+        """Render one retargeted BrainCo hand and annotate controllable joints."""
+        renderer = self.renderers[side]
+        retargeter = self.retargeters[side]
 
-        render_rgb = self.renderer.render()
+        if joint_angles is not None:
+            renderer.set_joint_angles(joint_angles, in_degrees=False)
+
+        render_rgb = renderer.render()
         panel = cv2.cvtColor(render_rgb, cv2.COLOR_RGB2BGR)
         if self.robot_panel_offset_y:
             shift_matrix = np.float32([[1, 0, 0], [0, 1, self.robot_panel_offset_y]])
@@ -230,18 +305,19 @@ class RealtimeRetargetingVisualizer:
                 (panel.shape[1], panel.shape[0]),
                 borderMode=cv2.BORDER_REPLICATE,
             )
+
         self._draw_header(
             panel,
-            "Retargeted BrainCo Hand",
-            f"{self.hand_side.upper()} hand | URDF: {Path(self.urdf_path).name}",
+            f"{side.upper()} BrainCo Hand",
+            f"URDF: {Path(self.urdf_paths[side]).name}",
         )
 
         if joint_angles is None:
-            self._draw_lines(panel, ["No matching hand detected"], start_y=72, color=(0, 165, 255))
+            self._draw_lines(panel, [f"No {side} hand detected"], start_y=72, color=(0, 165, 255))
             return panel
 
         lines = []
-        for key, joint_name in self.retargeting.controllable_joints.items():
+        for key, joint_name in retargeter.controllable_joints.items():
             angle_deg = np.degrees(joint_angles[joint_name])
             short_name = key.replace("_proximal", "").replace("_metacarpal", "_meta")
             lines.append(f"{short_name}: {angle_deg:6.1f} deg")
@@ -255,17 +331,26 @@ class RealtimeRetargetingVisualizer:
         source_label: str,
         display_fps: float,
         frame_idx: int,
-        target_found: bool,
         detected_summary: str,
-        handedness,
+        selected_hands: Dict[str, Tuple[Optional[object], Optional[object]]],
+        joint_angles_by_side: Dict[str, Optional[Dict[str, float]]],
         paused: bool,
     ) -> np.ndarray:
         """Prepare the camera/MediaPipe panel."""
         display_frame = cv2.flip(frame, 1) if self.mirror else frame
         panel = self._resize_and_pad(display_frame, self.render_width, self.render_height)
 
-        status = "target matched" if target_found else "waiting for target hand"
-        self._draw_header(panel, "Detected Hand Model", f"{source_label} | {status}")
+        if self.hand_side == "both":
+            left_found = joint_angles_by_side["left"] is not None
+            right_found = joint_angles_by_side["right"] is not None
+            status = f"L {'ok' if left_found else '--'} | R {'ok' if right_found else '--'}"
+            subtitle = f"{source_label} | {status}"
+        else:
+            target_found = joint_angles_by_side[self.hand_side] is not None
+            status = "target matched" if target_found else "waiting for target hand"
+            subtitle = f"{source_label} | {status}"
+
+        self._draw_header(panel, "Detected Hand Model", subtitle)
 
         lines = [
             f"frame: {frame_idx}",
@@ -276,17 +361,62 @@ class RealtimeRetargetingVisualizer:
             "controls: q quit | space pause | m mirror",
         ]
 
-        if handedness is not None:
+        for side in self.active_hands:
+            _, handedness = selected_hands[side]
+            if handedness is None:
+                lines.insert(3, f"{side.upper()} match: none")
+                continue
             classification = handedness.classification[0]
             actual_hand = self._resolve_actual_hand(classification.label).upper()
-            lines.insert(3, f"matched hand: {actual_hand} {classification.score:.2f}")
+            score_text = f"{actual_hand} {classification.score:.2f}"
+            lines.insert(3, f"{side.upper()} match: {score_text}")
 
         if paused:
             lines.insert(0, "paused")
 
-        color = (0, 255, 0) if target_found else (0, 165, 255)
+        any_found = any(joint_angles_by_side[side] is not None for side in self.active_hands)
+        color = (0, 255, 0) if any_found else (0, 165, 255)
         self._draw_lines(panel, lines, start_y=72, color=color)
         return panel
+
+    def _extract_both_controllable_trajectory(self, full_trajectory: Dict) -> Dict:
+        """Extract the 6-DOF controllable joints for both hands."""
+        hands_meta = {}
+        for side in ("left", "right"):
+            retargeter = self.retargeters[side]
+            hands_meta[side] = {
+                "dof": 6,
+                "joints": list(retargeter.controllable_joints.keys()),
+                "joint_names": list(retargeter.controllable_joints.values()),
+                "mimic_info": retargeter.mimic_joints,
+            }
+
+        controllable = {
+            "fps": full_trajectory["fps"],
+            "angle_unit": "degrees",
+            "hand": "both",
+            "hands": hands_meta,
+            "frames": [],
+        }
+
+        for frame in full_trajectory["frames"]:
+            frame_out = {
+                "frame": frame["frame"],
+                "timestamp": frame["timestamp"],
+                "left_joint_angles": None,
+                "right_joint_angles": None,
+            }
+            for side in ("left", "right"):
+                side_angles = frame.get(f"{side}_joint_angles")
+                if side_angles:
+                    frame_out[f"{side}_joint_angles"] = {
+                        joint_name: side_angles[joint_name]
+                        for joint_name in self.retargeters[side].controllable_joints.values()
+                        if joint_name in side_angles
+                    }
+            controllable["frames"].append(frame_out)
+
+        return controllable
 
     def run(
         self,
@@ -321,6 +451,12 @@ class RealtimeRetargetingVisualizer:
         print(f"{'=' * 72}")
         print(f"Source: {source_label}")
         print(f"Target hand: {self.hand_side}")
+        if self.hand_side == "both":
+            print(f"Left URDF: {self.urdf_paths['left']}")
+            print(f"Right URDF: {self.urdf_paths['right']}")
+            print("Display layout: scene | left retargeting | right retargeting")
+        else:
+            print(f"URDF: {self.urdf_path}")
         print(f"Render size: {self.render_width}x{self.render_height}")
         print("Controls: q quit | SPACE pause/resume | m mirror")
         if trajectory_out:
@@ -328,6 +464,14 @@ class RealtimeRetargetingVisualizer:
         if headless:
             print("Headless mode: enabled")
         print(f"{'=' * 72}\n")
+
+        if not headless:
+            cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(
+                self.window_name,
+                self.render_width * (1 + len(self.active_hands)),
+                self.render_height,
+            )
 
         last_combined = None
         frame_idx = 0
@@ -373,11 +517,16 @@ class RealtimeRetargetingVisualizer:
                                     self.retargeting.mp_drawing_styles.get_default_hand_connections_style(),
                                 )
 
-                        target_landmarks, target_handedness = self._select_target_hand(results)
-                        joint_angles = None
-
-                        if target_landmarks is not None:
-                            joint_angles = self.retargeting.retarget_hand_pose(target_landmarks.landmark)
+                        selected_hands = self._select_target_hands(results)
+                        joint_angles_by_side: Dict[str, Optional[Dict[str, float]]] = {
+                            side: None for side in self.active_hands
+                        }
+                        for side in self.active_hands:
+                            landmarks, _ = selected_hands[side]
+                            if landmarks is not None:
+                                joint_angles_by_side[side] = self.retargeters[side].retarget_hand_pose(
+                                    landmarks.landmark
+                                )
 
                         detected_summary = self._summarize_detected_hands(results)
                         now = time.perf_counter()
@@ -389,34 +538,54 @@ class RealtimeRetargetingVisualizer:
                             source_label=source_label,
                             display_fps=display_fps,
                             frame_idx=frame_idx,
-                            target_found=joint_angles is not None,
                             detected_summary=detected_summary,
-                            handedness=target_handedness,
+                            selected_hands=selected_hands,
+                            joint_angles_by_side=joint_angles_by_side,
                             paused=paused,
                         )
-                        robot_panel = self._render_robot_panel(joint_angles)
-                        last_combined = np.hstack((camera_panel, robot_panel))
+                        robot_panels = [
+                            self._render_robot_panel(side, joint_angles_by_side[side])
+                            for side in self.active_hands
+                        ]
+                        last_combined = np.hstack([camera_panel] + robot_panels)
 
                         if trajectory is not None:
-                            joint_angles_deg = None
-                            if joint_angles is not None:
-                                joint_angles_deg = {k: float(np.degrees(v)) for k, v in joint_angles.items()}
                             if video_path:
                                 timestamp = frame_idx / source_fps
                             else:
                                 timestamp = time.perf_counter() - session_start_time
-                            trajectory["frames"].append(
-                                {
+
+                            if self.hand_side == "both":
+                                frame_record = {
                                     "frame": frame_idx,
                                     "timestamp": timestamp,
-                                    "joint_angles": joint_angles_deg,
+                                    "left_joint_angles": None,
+                                    "right_joint_angles": None,
                                 }
-                            )
+                                for side in ("left", "right"):
+                                    side_angles = joint_angles_by_side[side]
+                                    if side_angles is not None:
+                                        frame_record[f"{side}_joint_angles"] = {
+                                            k: float(np.degrees(v)) for k, v in side_angles.items()
+                                        }
+                            else:
+                                side_angles = joint_angles_by_side[self.hand_side]
+                                frame_record = {
+                                    "frame": frame_idx,
+                                    "timestamp": timestamp,
+                                    "joint_angles": None,
+                                }
+                                if side_angles is not None:
+                                    frame_record["joint_angles"] = {
+                                        k: float(np.degrees(v)) for k, v in side_angles.items()
+                                    }
+
+                            trajectory["frames"].append(frame_record)
 
                         frame_idx += 1
 
                     if not headless and last_combined is not None:
-                        cv2.imshow("Realtime Hand Retargeting", last_combined)
+                        cv2.imshow(self.window_name, last_combined)
                         key = cv2.waitKey(1) & 0xFF
                     else:
                         key = -1
@@ -446,7 +615,11 @@ class RealtimeRetargetingVisualizer:
             with trajectory_path.open("w") as handle:
                 json.dump(trajectory, handle, indent=2)
 
-            controllable_trajectory = self.retargeting._extract_controllable_trajectory(trajectory)
+            if self.hand_side == "both":
+                controllable_trajectory = self._extract_both_controllable_trajectory(trajectory)
+            else:
+                controllable_trajectory = self.retargeting._extract_controllable_trajectory(trajectory)
+
             controllable_path = trajectory_path.with_name(
                 f"{trajectory_path.stem}_6dof{trajectory_path.suffix}"
             )
@@ -459,8 +632,9 @@ class RealtimeRetargetingVisualizer:
         return trajectory
 
     def close(self) -> None:
-        """Release the PyBullet renderer."""
-        self.renderer.cleanup()
+        """Release the PyBullet renderer(s)."""
+        for renderer in self.renderers.values():
+            renderer.cleanup()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -470,11 +644,18 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Realtime webcam on macOS
+  # Realtime webcam for a single hand
   python realtime_visualize.py \
       --camera-index 0 \
       --urdf brainco_hand/brainco_right.urdf \
       --hand right
+
+  # Realtime webcam for both hands
+  python realtime_visualize.py \
+      --camera-index 0 \
+      --hand both \
+      --left-urdf brainco_hand/brainco_left.urdf \
+      --right-urdf brainco_hand/brainco_right.urdf
 
   # Run against a saved video
   python realtime_visualize.py \
@@ -482,11 +663,12 @@ Examples:
       --urdf brainco_hand/brainco_right.urdf \
       --hand right
 
-  # Headless smoke test
+  # Headless smoke test for both hands
   python realtime_visualize.py \
       --video human_hand_video.mp4 \
-      --urdf brainco_hand/brainco_right.urdf \
-      --hand right \
+      --hand both \
+      --left-urdf brainco_hand/brainco_left.urdf \
+      --right-urdf brainco_hand/brainco_right.urdf \
       --headless \
       --max-frames 30 \
       --trajectory-out /tmp/realtime_test.json
@@ -500,13 +682,30 @@ Examples:
         default=0,
         help="Camera index for live capture (default: 0).",
     )
-    parser.add_argument("--urdf", type=str, required=True, help="Path to the BrainCo/Revo2 URDF.")
+    parser.add_argument(
+        "--urdf",
+        type=str,
+        default=None,
+        help="Path to the BrainCo/Revo2 URDF. Required for single-hand mode.",
+    )
+    parser.add_argument(
+        "--left-urdf",
+        type=str,
+        default=None,
+        help="Optional left-hand URDF path, used for --hand both.",
+    )
+    parser.add_argument(
+        "--right-urdf",
+        type=str,
+        default=None,
+        help="Optional right-hand URDF path, used for --hand both.",
+    )
     parser.add_argument(
         "--hand",
         type=str,
         default="right",
-        choices=["right", "left"],
-        help="Actual hand side to track.",
+        choices=["right", "left", "both"],
+        help="Actual hand side(s) to track.",
     )
     parser.add_argument(
         "--camera-width",
@@ -535,7 +734,7 @@ Examples:
     parser.add_argument(
         "--render-height",
         type=int,
-        default=480,
+        default=720,
         help="Height of each output panel.",
     )
     parser.add_argument(
@@ -589,6 +788,8 @@ def main() -> None:
     visualizer = RealtimeRetargetingVisualizer(
         urdf_path=args.urdf,
         hand_side=args.hand,
+        left_urdf_path=args.left_urdf,
+        right_urdf_path=args.right_urdf,
         camera_index=args.camera_index,
         camera_width=args.camera_width,
         camera_height=args.camera_height,

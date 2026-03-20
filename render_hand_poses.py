@@ -38,6 +38,10 @@ class HandPoseRenderer:
         
         # Load URDF
         self.load_hand()
+
+    def _client_kwargs(self) -> Dict[str, int]:
+        """Return the physics client id for scoped PyBullet API calls."""
+        return {"physicsClientId": self.physics_client}
         
     def setup_camera(self):
         """Setup camera parameters for rendering."""
@@ -49,10 +53,10 @@ class HandPoseRenderer:
         
     def load_hand(self):
         """Load hand URDF."""
-        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        p.setAdditionalSearchPath(pybullet_data.getDataPath(), **self._client_kwargs())
         
         # Load plane (for visual reference)
-        p.loadURDF("plane.urdf", [0, 0, 0])
+        p.loadURDF("plane.urdf", [0, 0, 0], **self._client_kwargs())
         
         # Load hand
         start_pos = [0, 0, 0.1]
@@ -64,14 +68,15 @@ class HandPoseRenderer:
             self.urdf_path,
             start_pos,
             start_orientation,
-            useFixedBase=True
+            useFixedBase=True,
+            **self._client_kwargs(),
         )
         
         # Get joint indices
         self.joint_indices = {}
-        num_joints = p.getNumJoints(self.hand_id)
+        num_joints = p.getNumJoints(self.hand_id, **self._client_kwargs())
         for i in range(num_joints):
-            joint_info = p.getJointInfo(self.hand_id, i)
+            joint_info = p.getJointInfo(self.hand_id, i, **self._client_kwargs())
             joint_name = joint_info[1].decode('utf-8')
             joint_type = joint_info[2]
             
@@ -99,7 +104,8 @@ class HandPoseRenderer:
                 p.resetJointState(
                     bodyUniqueId=self.hand_id,
                     jointIndex=joint_idx,
-                    targetValue=angle
+                    targetValue=angle,
+                    **self._client_kwargs(),
                 )
     
     def render(self) -> np.ndarray:
@@ -133,7 +139,8 @@ class HandPoseRenderer:
                 height=self.height,
                 viewMatrix=view_matrix,
                 projectionMatrix=projection_matrix,
-                renderer=p.ER_BULLET_HARDWARE_OPENGL
+                renderer=p.ER_BULLET_HARDWARE_OPENGL,
+                **self._client_kwargs(),
             )
         except:
             # Fallback to TinyRenderer if hardware OpenGL fails
@@ -142,7 +149,8 @@ class HandPoseRenderer:
                 height=self.height,
                 viewMatrix=view_matrix,
                 projectionMatrix=projection_matrix,
-                renderer=p.ER_TINY_RENDERER
+                renderer=p.ER_TINY_RENDERER,
+                **self._client_kwargs(),
             )
         
         # Convert to RGB numpy array
