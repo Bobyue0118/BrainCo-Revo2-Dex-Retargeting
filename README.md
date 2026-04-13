@@ -20,9 +20,8 @@
 
 ## 🖼️ Both-Hand Realtime Demo
 
-  <video controls width="960" poster="demo.png">
-    <source src="demo.mp4" type="video/mp4">
-  </video>
+Click the below thumbnail to see the demo.
+[![Both-hand realtime webcam visualization](demo.png)](demo.mp4)
 
 Realtime webcam mode now supports `--hand both`, with the scene on the left, left-hand retargeting in the middle, and right-hand retargeting on the right.
 
