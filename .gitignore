@@ -31,6 +31,7 @@ ENV/
 
 # Output files
 *.mp4
+!demo.mp4
 !human_hand_video.mp4
 *.avi
 *.png
