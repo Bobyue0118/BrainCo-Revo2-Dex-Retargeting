@@ -10,7 +10,7 @@
 - 🖼️ **Image Support** - Process single images or image sequences
 - 🔄 **Complete Pipeline** - Images → 6-DOF control + rendered hand poses
 - 🤖 **Smart Retargeting** - Map human joints to 11-DOF robotic hand
-- 🎮 **3D Visualization** - PyBullet (fast & interactive) & SAPIEN (realistic) ⭐
+- 🎮 **3D Visualization** - PyBullet (fast & interactive) & SAPIEN (realistic)
 - ⚡ **Real-time Mode** - See webcam/video, detected hand landmarks, and 3D BrainCo hand together
 - 🙌 **Both-Hand Realtime Mode** - Detect and retarget left and right hands together in a 3-panel webcam view
 - 📊 **Data Analysis** - Visualize trajectories and statistics
